@@ -204,7 +204,8 @@ export type ScanAuthentication =
         | "OPENAI_API_KEY"
         | "CODEX_API_KEY"
         | "OPENROUTER_API_KEY"
-        | "FIREWORKS_API_KEY";
+        | "FIREWORKS_API_KEY"
+        | "AVALAI_API_KEY";
       verified: false;
     }
   | {
@@ -2671,7 +2672,11 @@ function selectedScanEnvironment(
     Object.entries(environment).filter(([name]) => {
       const key = name.toUpperCase();
       if (key === "OPENAI_API_KEY" || key === "CODEX_API_KEY") return false;
-      if (key === "OPENROUTER_API_KEY" || key === "FIREWORKS_API_KEY") {
+      if (
+        key === "OPENROUTER_API_KEY" ||
+        key === "FIREWORKS_API_KEY" ||
+        key === "AVALAI_API_KEY"
+      ) {
         return (
           !bedrockProvider &&
           (selectedProviderKey === null || key === selectedProviderKey)
@@ -2711,7 +2716,8 @@ function environmentApiKeyEntry(
     | "OPENAI_API_KEY"
     | "CODEX_API_KEY"
     | "OPENROUTER_API_KEY"
-    | "FIREWORKS_API_KEY";
+    | "FIREWORKS_API_KEY"
+    | "AVALAI_API_KEY";
   value: string;
 } | null {
   const keys = isExternalModelProvider(modelProvider)

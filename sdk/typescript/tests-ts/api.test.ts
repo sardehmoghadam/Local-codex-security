@@ -40,6 +40,7 @@ import {
   initialCredentialsAvailable,
 } from "../src/api.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   FIREWORKS_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
   type JsonObject,
@@ -85,6 +86,7 @@ const EXTERNAL_PROVIDER_CASES = [
     "accounts/fireworks/models/qwen3-235b-a22b",
     FIREWORKS_CODEX_PROVIDER,
   ],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
 ] as const;
 const BEDROCK_AUTHENTICATION_CASES = [
   [
@@ -1026,6 +1028,7 @@ describe("CodexSecurity orchestration", () => {
         "CODEX_API_KEY",
         "OPENROUTER_API_KEY",
         "FIREWORKS_API_KEY",
+        "AVALAI_API_KEY",
       ]) {
         expect((codexOptions as CodexOptions | null)?.env).not.toHaveProperty(
           key,

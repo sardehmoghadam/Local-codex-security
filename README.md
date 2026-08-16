@@ -39,6 +39,9 @@ npx @openai/codex-security scan . --provider openrouter --model anthropic/claude
 export FIREWORKS_API_KEY="<your-fireworks-api-key>"
 npx @openai/codex-security scan . --provider fireworks --model accounts/fireworks/models/qwen3-235b-a22b
 
+export AVALAI_API_KEY="<your-avalai-api-key>"
+npx @openai/codex-security scan . --provider avalai --model gpt-4o
+
 export AWS_BEARER_TOKEN_BEDROCK="<your-bedrock-api-key>"
 export AWS_REGION="us-east-2"
 npx @openai/codex-security scan . --provider amazon-bedrock --model openai.gpt-5.6-luna

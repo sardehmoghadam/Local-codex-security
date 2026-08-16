@@ -15,6 +15,7 @@ import {
   scanRuntimeCodexConfig,
 } from "../src/api.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   FIREWORKS_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
   scanModelProvider,
@@ -39,6 +40,7 @@ const EXTERNAL_PROVIDER_CASES = [
     "accounts/fireworks/models/qwen3-235b-a22b",
     FIREWORKS_CODEX_PROVIDER,
   ],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
 ] as const;
 
 afterEach(async () => {

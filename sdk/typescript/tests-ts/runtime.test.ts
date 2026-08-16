@@ -130,6 +130,7 @@ describe("plugin runtime preparation", () => {
     const providerKeys = [
       "OPENROUTER_API_KEY",
       "FIREWORKS_API_KEY",
+      "AVALAI_API_KEY",
       "AWS_BEARER_TOKEN_BEDROCK",
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
@@ -3786,6 +3787,7 @@ describe("runtime directories and plugin Python boundary", () => {
         "assert os.environ.get('CODEX_API_KEY') is None",
         "assert os.environ.get('OPENROUTER_API_KEY') is None",
         "assert os.environ.get('FIREWORKS_API_KEY') is None",
+        "assert os.environ.get('AVALAI_API_KEY') is None",
         "print(json.dumps({'ok': True, 'details': 'x' * (5 * 1024 * 1024)}))",
       ].join("\n"),
     );
@@ -3801,6 +3803,7 @@ describe("runtime directories and plugin Python boundary", () => {
           CODEX_API_KEY: "also-must-not-reach-python",
           OPENROUTER_API_KEY: "openrouter-must-not-reach-python",
           FIREWORKS_API_KEY: "fireworks-must-not-reach-python",
+          AVALAI_API_KEY: "avalai-must-not-reach-python",
         },
       },
       ["test-command"],

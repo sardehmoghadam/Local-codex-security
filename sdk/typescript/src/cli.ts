@@ -212,7 +212,7 @@ const VALUE_OPTIONS = new Set([
   "--reason",
 ]);
 const PROVIDER_OPTION = z
-  .enum(["openai", "openrouter", "fireworks", "amazon-bedrock"])
+  .enum(["openai", "openrouter", "fireworks", "amazon-bedrock", "avalai"])
   .default("openai")
   .describe("Inference provider for scans.");
 

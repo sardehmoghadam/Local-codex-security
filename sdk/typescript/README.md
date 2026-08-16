@@ -135,6 +135,9 @@ npx @openai/codex-security scan . --provider openrouter --model anthropic/claude
 export FIREWORKS_API_KEY="<your-fireworks-api-key>"
 npx @openai/codex-security scan . --provider fireworks --model accounts/fireworks/models/qwen3-235b-a22b
 
+export AVALAI_API_KEY="<your-avalai-api-key>"
+npx @openai/codex-security scan . --provider avalai --model gpt-4o
+
 export AWS_BEARER_TOKEN_BEDROCK="<your-bedrock-api-key>"
 export AWS_REGION="us-east-2"
 npx @openai/codex-security scan . --provider amazon-bedrock --model openai.gpt-5.6-luna
@@ -464,6 +467,9 @@ Use `--provider openrouter` to send inference through OpenRouter. Set
 
 Use `--provider fireworks` to send inference through Fireworks AI. Set
 `FIREWORKS_API_KEY` and specify a supported model with `--model`.
+
+Use `--provider avalai` to send inference through AvalAI, an OpenAI-compatible
+gateway. Set `AVALAI_API_KEY` and specify a supported model with `--model`.
 
 Use `--provider amazon-bedrock` to send inference through Amazon Bedrock. Set
 `AWS_REGION` and authenticate with `AWS_BEARER_TOKEN_BEDROCK`, standard AWS
