@@ -91,6 +91,9 @@ codex-security scan . --provider openrouter --model anthropic/claude-sonnet-4.5
 export FIREWORKS_API_KEY="<your-fireworks-api-key>"
 codex-security scan . --provider fireworks --model accounts/fireworks/models/qwen3-235b-a22b
 
+export AVALAI_API_KEY="<your-avalai-api-key>"
+codex-security scan . --provider avalai --model gpt-4o
+
 # Optional: set this only when your local gateway requires authentication.
 export LOCAL_API_KEY="<your-local-api-key>"
 # Optional: point the local provider at your own gateway.

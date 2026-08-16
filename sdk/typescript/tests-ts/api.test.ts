@@ -45,6 +45,7 @@ import {
   initialCredentialsAvailable,
 } from "../src/api.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   FIREWORKS_CODEX_PROVIDER,
   LOCAL_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
@@ -206,6 +207,7 @@ const EXTERNAL_PROVIDER_CASES = [
     FIREWORKS_CODEX_PROVIDER,
   ],
   ["Local", "local", "LOCAL_API_KEY", "qwen3.5-35b-a3b", LOCAL_CODEX_PROVIDER],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
 ] as const;
 const REQUIRED_API_KEY_PROVIDER_CASES = [
   [
@@ -1597,6 +1599,7 @@ describe("CodexSecurity orchestration", () => {
         "OPENROUTER_API_KEY",
         "FIREWORKS_API_KEY",
         "LOCAL_API_KEY",
+        "AVALAI_API_KEY",
       ]) {
         expect((codexOptions as CodexOptions | null)?.env).not.toHaveProperty(
           key,

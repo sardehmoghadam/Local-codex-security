@@ -41,6 +41,7 @@ import {
 import { scanPreflightCodexConfig } from "../src/api.js";
 import { CODEX_EXECUTABLE_VERSION, CODEX_SDK_VERSION } from "../src/version.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   DEFAULT_CODEX_CONFIG,
   FIREWORKS_CODEX_PROVIDER,
   LOCAL_CODEX_PROVIDER,
@@ -160,6 +161,7 @@ describe("CLI", () => {
               "fireworks",
               "amazon-bedrock",
               "local",
+              "avalai",
             ],
           },
           failOnSeverity: { enum: ["critical", "high", "medium", "low"] },
@@ -883,6 +885,7 @@ describe("CLI", () => {
       FIREWORKS_CODEX_PROVIDER,
     ],
     ["Local", "local", "qwen3.5-35b-a3b", LOCAL_CODEX_PROVIDER],
+    ["AvalAI", "avalai", "gpt-4o", AVALAI_CODEX_PROVIDER],
   ] as const)(
     "routes bulk scans through %s",
     async (_name, provider, model, providerConfig) => {
@@ -2378,7 +2381,7 @@ describe("CLI", () => {
     );
     expect(help.text()).toContain("--model <string>");
     expect(help.text()).toContain(
-      "--provider <openai|openrouter|fireworks|amazon-bedrock|local>",
+      "--provider <openai|openrouter|fireworks|amazon-bedrock|local|avalai>",
     );
     expect(help.text()).toContain(
       `OpenAI model to use (default: ${DEFAULT_SCAN_MODEL_CONFIGURATION.model}).`,
@@ -2450,7 +2453,7 @@ describe("CLI", () => {
     expect(help.text()).not.toContain("--outputDir");
     expect(help.text()).not.toContain("--maxAttempts");
     expect(help.text()).toContain(
-      "--provider <openai|openrouter|fireworks|amazon-bedrock|local>",
+      "--provider <openai|openrouter|fireworks|amazon-bedrock|local|avalai>",
     );
     expect(stderr.text()).toBe("");
   });
@@ -2520,6 +2523,7 @@ describe("CLI", () => {
       "qwen3.5-35b-a3b",
       LOCAL_CODEX_PROVIDER,
     ],
+    ["AvalAI", "avalai", "gpt-4o", "gpt-4o-mini", AVALAI_CODEX_PROVIDER],
   ] as const)(
     "routes scans through %s",
     async (_name, provider, selectedModel, codexModel, providerConfig) => {
@@ -2730,6 +2734,7 @@ describe("CLI", () => {
       "fireworks",
       "amazon-bedrock",
       "local",
+      "avalai",
     ] as const) {
       expect(() =>
         parseCodexOverrides([], undefined, undefined, provider),
@@ -3363,6 +3368,13 @@ describe("CLI", () => {
       "qwen3.5-35b-a3b",
       LOCAL_CODEX_PROVIDER,
       { LOCAL_API_KEY: "synthetic-local-key" },
+    ],
+    [
+      "AvalAI",
+      "avalai",
+      "gpt-4o",
+      AVALAI_CODEX_PROVIDER,
+      { AVALAI_API_KEY: "synthetic-avalai-key" },
     ],
   ] as const)(
     "reruns profile-selected %s scans with their saved provider configuration",

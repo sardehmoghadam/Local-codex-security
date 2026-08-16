@@ -56,10 +56,18 @@ export function localCodexBaseUrl(
     : override;
 }
 
+export const AVALAI_CODEX_PROVIDER = {
+  name: "AvalAI",
+  base_url: "https://api.avalai.ir/v1",
+  env_key: "AVALAI_API_KEY",
+  wire_api: "responses",
+} as const satisfies JsonObject;
+
 export const EXTERNAL_CODEX_PROVIDERS = {
   openrouter: OPENROUTER_CODEX_PROVIDER,
   fireworks: FIREWORKS_CODEX_PROVIDER,
   local: LOCAL_CODEX_PROVIDER,
+  avalai: AVALAI_CODEX_PROVIDER,
 } as const;
 
 export type ExternalModelProvider = keyof typeof EXTERNAL_CODEX_PROVIDERS;

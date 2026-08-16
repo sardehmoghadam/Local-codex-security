@@ -15,6 +15,7 @@ import {
   scanRuntimeCodexConfig,
 } from "../src/api.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   FIREWORKS_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
   externalCodexProviderConfig,
@@ -53,6 +54,7 @@ const EXTERNAL_PROVIDER_CASES = [
       wire_api: "responses",
     },
   ],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
 ] as const;
 
 afterEach(async () => {

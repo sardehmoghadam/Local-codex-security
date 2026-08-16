@@ -319,7 +319,8 @@ export type ScanAuthentication =
         | "CODEX_API_KEY"
         | "OPENROUTER_API_KEY"
         | "FIREWORKS_API_KEY"
-        | "LOCAL_API_KEY";
+        | "LOCAL_API_KEY"
+        | "AVALAI_API_KEY";
       verified: false;
     }
   | {
@@ -3778,7 +3779,8 @@ export function selectedScanEnvironment(
       if (
         key === "OPENROUTER_API_KEY" ||
         key === "FIREWORKS_API_KEY" ||
-        key === "LOCAL_API_KEY"
+        key === "LOCAL_API_KEY" ||
+        key === "AVALAI_API_KEY"
       ) {
         return (
           !bedrockProvider &&
@@ -3831,7 +3833,8 @@ function environmentApiKeyEntry(
     | "CODEX_API_KEY"
     | "OPENROUTER_API_KEY"
     | "FIREWORKS_API_KEY"
-    | "LOCAL_API_KEY";
+    | "LOCAL_API_KEY"
+    | "AVALAI_API_KEY";
   value: string;
 } | null {
   const keys = isExternalModelProvider(modelProvider)
