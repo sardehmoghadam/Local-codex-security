@@ -209,6 +209,12 @@ npx @openai/codex-security scan . --provider openrouter --model anthropic/claude
 export FIREWORKS_API_KEY="<your-fireworks-api-key>"
 npx @openai/codex-security scan . --provider fireworks --model accounts/fireworks/models/qwen3-235b-a22b
 
+# The local gateway may not require a key; set it when it does.
+export LOCAL_API_KEY="<your-local-api-key>"
+# Optional: point the local provider at your own gateway.
+export LOCAL_API_BASE_URL="http://localhost:1234/v1"
+npx @openai/codex-security scan . --provider local --model qwen3.5-35b-a3b
+
 export AWS_BEARER_TOKEN_BEDROCK="<your-bedrock-api-key>"
 export AWS_REGION="us-east-2"
 npx @openai/codex-security scan . --provider amazon-bedrock --model openai.gpt-5.6-luna

@@ -317,7 +317,7 @@ const VALUE_OPTIONS = new Set([
   "--linear-assignee",
 ]);
 const PROVIDER_OPTION = z
-  .enum(["openai", "openrouter", "fireworks", "amazon-bedrock"])
+  .enum(["openai", "openrouter", "fireworks", "amazon-bedrock", "local"])
   .default("openai")
   .describe("Inference provider for scans.");
 const CREATE_PR_OPTION = z
@@ -6914,7 +6914,9 @@ async function executeScan(
                 ? `Using AWS credentials from ${authentication.source}`
                 : authentication.method === "command"
                   ? "Using native Codex command authentication"
-                  : "Using stored Codex credentials",
+                  : authentication.method === "none"
+                    ? "No API key required"
+                    : "Using stored Codex credentials",
           );
           return;
         }
@@ -6932,6 +6934,8 @@ async function executeScan(
           );
         } else if (authentication.method === "command") {
           progress?.stage("Authentication: native Codex command.");
+        } else if (authentication.method === "none") {
+          progress?.stage("Authentication: no API key required.");
         } else {
           progress?.stage("Authentication: stored Codex credentials.");
         }
@@ -7431,6 +7435,12 @@ function scanFailureMessage(
           "Check your Amazon Bedrock bearer token or AWS credential chain."
         );
       }
+      if (authentication?.method === "none") {
+        return (
+          "Authentication failed for the local provider. " +
+          "Confirm the gateway accepts anonymous requests or set LOCAL_API_KEY."
+        );
+      }
       return authentication?.method === "api_key"
         ? `Authentication failed using ${authentication.source}. ` +
             "Retry with '--auth chatgpt' or provide a valid API key."
@@ -7444,6 +7454,12 @@ function scanFailureMessage(
         return (
           `The AWS credentials from ${authentication.source} cannot access the configured Amazon Bedrock model. ` +
           "Check your AWS identity and Bedrock model permissions."
+        );
+      }
+      if (authentication?.method === "none") {
+        return (
+          "The local provider rejected the request. " +
+          "Check the model name and the local gateway configuration."
         );
       }
       return authentication?.method === "api_key"

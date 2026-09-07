@@ -43,6 +43,7 @@ import { CODEX_EXECUTABLE_VERSION, CODEX_SDK_VERSION } from "../src/version.js";
 import {
   DEFAULT_CODEX_CONFIG,
   FIREWORKS_CODEX_PROVIDER,
+  LOCAL_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
   scanModelConfiguration,
 } from "../src/config.js";
@@ -153,7 +154,13 @@ describe("CLI", () => {
             enum: ["minimal", "low", "medium", "high", "xhigh", "max"],
           },
           provider: {
-            enum: ["openai", "openrouter", "fireworks", "amazon-bedrock"],
+            enum: [
+              "openai",
+              "openrouter",
+              "fireworks",
+              "amazon-bedrock",
+              "local",
+            ],
           },
           failOnSeverity: { enum: ["critical", "high", "medium", "low"] },
           patch: { type: "boolean" },
@@ -875,6 +882,7 @@ describe("CLI", () => {
       "accounts/fireworks/models/qwen3-235b-a22b",
       FIREWORKS_CODEX_PROVIDER,
     ],
+    ["Local", "local", "qwen3.5-35b-a3b", LOCAL_CODEX_PROVIDER],
   ] as const)(
     "routes bulk scans through %s",
     async (_name, provider, model, providerConfig) => {
@@ -2366,7 +2374,7 @@ describe("CLI", () => {
     );
     expect(help.text()).toContain("--model <string>");
     expect(help.text()).toContain(
-      "--provider <openai|openrouter|fireworks|amazon-bedrock>",
+      "--provider <openai|openrouter|fireworks|amazon-bedrock|local>",
     );
     expect(help.text()).toContain(
       `OpenAI model to use (default: ${DEFAULT_SCAN_MODEL_CONFIGURATION.model}).`,
@@ -2438,7 +2446,7 @@ describe("CLI", () => {
     expect(help.text()).not.toContain("--outputDir");
     expect(help.text()).not.toContain("--maxAttempts");
     expect(help.text()).toContain(
-      "--provider <openai|openrouter|fireworks|amazon-bedrock>",
+      "--provider <openai|openrouter|fireworks|amazon-bedrock|local>",
     );
     expect(stderr.text()).toBe("");
   });
@@ -2500,6 +2508,13 @@ describe("CLI", () => {
       "accounts/fireworks/models/gpt-oss-120b",
       "accounts/fireworks/models/llama-v3p3-70b-instruct",
       FIREWORKS_CODEX_PROVIDER,
+    ],
+    [
+      "Local",
+      "local",
+      "qwen3.5-35b-a3b",
+      "qwen3.5-35b-a3b",
+      LOCAL_CODEX_PROVIDER,
     ],
   ] as const)(
     "routes scans through %s",
@@ -2676,6 +2691,7 @@ describe("CLI", () => {
       "openrouter",
       "fireworks",
       "amazon-bedrock",
+      "local",
     ] as const) {
       expect(() =>
         parseCodexOverrides([], undefined, undefined, provider),
@@ -2784,6 +2800,10 @@ describe("CLI", () => {
       [
         ["scan", ".", "--provider", "fireworks"],
         "--model is required when using --provider fireworks",
+      ],
+      [
+        ["scan", ".", "--provider", "local"],
+        "--model is required when using --provider local",
       ],
       [
         ["scan", ".", "--effort", "ultra"],
@@ -3298,6 +3318,13 @@ describe("CLI", () => {
       "accounts/fireworks/models/qwen3-235b-a22b",
       FIREWORKS_CODEX_PROVIDER,
       { FIREWORKS_API_KEY: "synthetic-fireworks-key" },
+    ],
+    [
+      "Local",
+      "local",
+      "qwen3.5-35b-a3b",
+      LOCAL_CODEX_PROVIDER,
+      { LOCAL_API_KEY: "synthetic-local-key" },
     ],
   ] as const)(
     "reruns profile-selected %s scans with their saved provider configuration",

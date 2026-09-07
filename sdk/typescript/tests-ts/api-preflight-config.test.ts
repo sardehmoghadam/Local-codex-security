@@ -16,7 +16,9 @@ import {
 } from "../src/api.js";
 import {
   FIREWORKS_CODEX_PROVIDER,
+  LOCAL_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
+  localCodexBaseUrl,
   scanModelProvider,
   writeCodexConfig,
   type JsonObject,
@@ -39,6 +41,7 @@ const EXTERNAL_PROVIDER_CASES = [
     "accounts/fireworks/models/qwen3-235b-a22b",
     FIREWORKS_CODEX_PROVIDER,
   ],
+  ["Local", "local", "LOCAL_API_KEY", "qwen3.5-35b-a3b", LOCAL_CODEX_PROVIDER],
 ] as const;
 
 afterEach(async () => {
@@ -833,6 +836,25 @@ describe("CodexSecurity preflight configuration", () => {
     expect(afterInvalid["projects"]).toMatchObject({
       "/valid/project-255": { trust_level: "trusted" },
     });
+  });
+
+  test("uses the default base URL for the local provider", () => {
+    expect(localCodexBaseUrl({})).toBe("https://local.dev/v1");
+    expect(localCodexBaseUrl({ LOCAL_API_BASE_URL: "" })).toBe(
+      "https://local.dev/v1",
+    );
+    expect(localCodexBaseUrl({ LOCAL_API_BASE_URL: "   " })).toBe(
+      "https://local.dev/v1",
+    );
+  });
+
+  test("overrides the local provider base URL from the environment", () => {
+    expect(
+      localCodexBaseUrl({ LOCAL_API_BASE_URL: "http://localhost:1234/v1" }),
+    ).toBe("http://localhost:1234/v1");
+    expect(
+      localCodexBaseUrl({ LOCAL_API_BASE_URL: "  http://localhost:1234/v1  " }),
+    ).toBe("http://localhost:1234/v1");
   });
 
   test.each(EXTERNAL_PROVIDER_CASES)(

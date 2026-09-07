@@ -309,13 +309,15 @@ export type ScanAuthMode = (typeof SCAN_AUTH_MODES)[number];
 
 export type ScanAuthentication =
   | { method: "command"; verified: false }
+  | { method: "none"; verified: false }
   | {
       method: "api_key";
       source:
         | "OPENAI_API_KEY"
         | "CODEX_API_KEY"
         | "OPENROUTER_API_KEY"
-        | "FIREWORKS_API_KEY";
+        | "FIREWORKS_API_KEY"
+        | "LOCAL_API_KEY";
       verified: false;
     }
   | {
@@ -2126,7 +2128,7 @@ export class CodexSecurity {
           ),
         ),
       ),
-      ...(externalProvider === null
+      ...(externalProvider === null || apiKey === null
         ? {}
         : { [externalProvider.env_key]: apiKey! }),
       CODEX_HOME: runtime.codexHome,
@@ -2224,7 +2226,11 @@ export class CodexSecurity {
         authentication.method === "api_key"
           ? environmentApiKey(this.#dependencies.environment, modelProvider)
           : null;
-      if (externalProvider !== null && apiKey === null) {
+      if (
+        externalProvider !== null &&
+        authentication.method !== "none" &&
+        apiKey === null
+      ) {
         throw new AuthenticationRequiredError(
           `Set ${externalProvider.env_key} to run a scan through ${externalProvider.name}.`,
         );
@@ -2328,7 +2334,8 @@ export class CodexSecurity {
         !runtime.credentialsAvailable &&
         apiKey === null &&
         !commandAuth &&
-        authentication.method !== "aws_credentials"
+        authentication.method !== "aws_credentials" &&
+        authentication.method !== "none"
       ) {
         throw new AuthenticationRequiredError(
           "No credentials were found. Run 'codex-security login', use " +
@@ -3675,6 +3682,9 @@ export function scanAuthentication(
     return { method: "stored_credentials", verified: false };
   }
   const key = environmentApiKeyEntry(environment, modelProvider);
+  if (key === null && modelProvider === "local") {
+    return { method: "none", verified: false };
+  }
   if (
     auth === "api-key" &&
     key === null &&
@@ -3751,7 +3761,11 @@ export function selectedScanEnvironment(
   return Object.fromEntries(
     Object.entries(withoutOpenAiApiKeys(environment)).filter(([name]) => {
       const key = name.toUpperCase();
-      if (key === "OPENROUTER_API_KEY" || key === "FIREWORKS_API_KEY") {
+      if (
+        key === "OPENROUTER_API_KEY" ||
+        key === "FIREWORKS_API_KEY" ||
+        key === "LOCAL_API_KEY"
+      ) {
         return (
           !bedrockProvider &&
           (selectedProviderKey === null || key === selectedProviderKey)
@@ -3802,7 +3816,8 @@ function environmentApiKeyEntry(
     | "OPENAI_API_KEY"
     | "CODEX_API_KEY"
     | "OPENROUTER_API_KEY"
-    | "FIREWORKS_API_KEY";
+    | "FIREWORKS_API_KEY"
+    | "LOCAL_API_KEY";
   value: string;
 } | null {
   const keys = isExternalModelProvider(modelProvider)
