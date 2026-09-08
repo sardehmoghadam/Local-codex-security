@@ -88,7 +88,7 @@ import {
 } from "./bulk-scan-discovery.js";
 import {
   DEFAULT_CODEX_CONFIG,
-  EXTERNAL_CODEX_PROVIDERS,
+  externalCodexProviderConfig,
   isExternalModelProvider,
   mergedCodexConfig,
   scanModelConfiguration,
@@ -3560,6 +3560,7 @@ export async function main(
               options.model,
               options.effort,
               options.provider,
+              dependencies.environment,
             ),
           };
           const components =
@@ -3855,6 +3856,7 @@ export async function main(
                 options.model,
                 options.effort,
                 options.provider,
+                dependencies.environment,
               ),
             },
             createSecurity: dependencies.createSecurity,
@@ -6674,6 +6676,7 @@ async function executeScan(
           arguments_.model,
           arguments_.effort,
           arguments_.provider,
+          dependencies.environment,
         ),
     };
     const selectedProfileName = config.codexOverrides?.["profile"];
@@ -7773,6 +7776,7 @@ export function parseCodexOverrides(
   model?: string,
   effort?: ScanReasoningEffort,
   provider?: "openai" | "amazon-bedrock" | ExternalModelProvider,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): JsonObject {
   const result = Object.create(null) as JsonObject;
   if (model !== undefined) result["model"] = model;
@@ -7780,7 +7784,7 @@ export function parseCodexOverrides(
   if (isExternalModelProvider(provider)) {
     result["model_provider"] = provider;
     result["model_providers"] = {
-      [provider]: { ...EXTERNAL_CODEX_PROVIDERS[provider] },
+      [provider]: externalCodexProviderConfig(provider, environment),
     };
   } else if (provider === "amazon-bedrock") {
     result["model_provider"] = provider;

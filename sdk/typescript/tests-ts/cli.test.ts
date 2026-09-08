@@ -891,6 +891,8 @@ describe("CLI", () => {
         await multiscanInventory(root);
         let config: CodexSecurityConfig | undefined;
         const missingModelError = capture();
+        const environment =
+          provider === "local" ? { LOCAL_API_KEY: "synthetic-local-key" } : {};
         expect(
           await main(
             [
@@ -905,6 +907,7 @@ describe("CLI", () => {
             missingModelError.stream,
             dependencies({
               currentDirectory: root,
+              environment,
               onConfig: (value) => (config = value),
             }),
           ),
@@ -930,6 +933,7 @@ describe("CLI", () => {
             capture().stream,
             dependencies({
               currentDirectory: root,
+              environment,
               onConfig: (value) => (config = value),
             }),
           ),
@@ -2532,7 +2536,13 @@ describe("CLI", () => {
             ["scan", ".", ...options],
             capture().stream,
             capture().stream,
-            dependencies({ onConfig: (value) => (config = value) }),
+            dependencies({
+              environment:
+                provider === "local"
+                  ? { LOCAL_API_KEY: "synthetic-local-key" }
+                  : {},
+              onConfig: (value) => (config = value),
+            }),
           ),
         ).toBe(0);
         expect(config?.codexOverrides).toEqual({
@@ -2543,6 +2553,34 @@ describe("CLI", () => {
       }
     },
   );
+
+  test("routes keyless local scans without an env_key", async () => {
+    let config: CodexSecurityConfig | undefined;
+    expect(
+      await main(
+        ["scan", ".", "--provider", "local", "--model", "qwen3.5-35b-a3b"],
+        capture().stream,
+        capture().stream,
+        dependencies({
+          environment: {
+            LOCAL_API_BASE_URL: "https://gateway.example.test/v1",
+          },
+          onConfig: (value) => (config = value),
+        }),
+      ),
+    ).toBe(0);
+    expect(config?.codexOverrides).toEqual({
+      model: "qwen3.5-35b-a3b",
+      model_provider: "local",
+      model_providers: {
+        local: {
+          name: "Local",
+          base_url: "https://gateway.example.test/v1",
+          wire_api: "responses",
+        },
+      },
+    });
+  });
 
   test("routes scans through the built-in Amazon Bedrock provider", async () => {
     for (const options of [
@@ -3329,12 +3367,15 @@ describe("CLI", () => {
   ] as const)(
     "reruns profile-selected %s scans with their saved provider configuration",
     async (_name, provider, model, providerConfig, environment) => {
-      const savedConfig = scanPreflightCodexConfig({
-        model_provider: "openai",
-        profile: "selected",
-        profiles: { selected: { model, model_provider: provider } },
-        model_providers: { [provider]: providerConfig },
-      });
+      const savedConfig = scanPreflightCodexConfig(
+        {
+          model_provider: "openai",
+          profile: "selected",
+          profiles: { selected: { model, model_provider: provider } },
+          model_providers: { [provider]: providerConfig },
+        },
+        environment,
+      );
       let rerunConfig: CodexSecurityConfig | undefined;
 
       expect(

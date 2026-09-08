@@ -1431,6 +1431,7 @@ describe("CodexSecurity orchestration", () => {
     let authentication: ScanAuthentication | undefined;
     const environment = {
       OPENAI_API_KEY: "synthetic-openai-key",
+      LOCAL_API_BASE_URL: "https://gateway.example.test/v1",
     };
     const client = new TestClient(
       {
@@ -1490,6 +1491,14 @@ describe("CodexSecurity orchestration", () => {
       "OPENAI_API_KEY",
     );
     expect((codexOptions as CodexOptions | null)?.apiKey).toBeUndefined();
+    const modelProviders = (codexOptions as CodexOptions | null)?.config?.[
+      "model_providers"
+    ] as Record<string, unknown> | undefined;
+    expect(modelProviders?.["local"]).toEqual({
+      name: "Local",
+      base_url: "https://gateway.example.test/v1",
+      wire_api: "responses",
+    });
     await client.close();
   });
 

@@ -39,7 +39,7 @@ export const LOCAL_CODEX_PROVIDER = {
   name: "Local",
   base_url: localCodexBaseUrl(),
   env_key: "LOCAL_API_KEY",
-  wire_api: "chat",
+  wire_api: "responses",
 } as const satisfies JsonObject;
 
 /**
@@ -63,6 +63,22 @@ export const EXTERNAL_CODEX_PROVIDERS = {
 } as const;
 
 export type ExternalModelProvider = keyof typeof EXTERNAL_CODEX_PROVIDERS;
+
+export function externalCodexProviderConfig(
+  provider: ExternalModelProvider,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): JsonObject {
+  const config: JsonObject = { ...EXTERNAL_CODEX_PROVIDERS[provider] };
+  if (provider === "local") {
+    config["base_url"] = localCodexBaseUrl(environment);
+    const hasApiKey = Object.entries(environment).some(
+      ([name, value]) =>
+        name.toUpperCase() === "LOCAL_API_KEY" && Boolean(value?.trim()),
+    );
+    if (!hasApiKey) delete config["env_key"];
+  }
+  return config;
+}
 
 export function isExternalModelProvider(
   provider: unknown,

@@ -51,8 +51,10 @@ import {
 import {
   DEFAULT_CODEX_CONFIG,
   EXTERNAL_CODEX_PROVIDERS,
+  externalCodexProviderConfig,
   isExternalModelProvider,
   hasCommandAuth,
+  localCodexBaseUrl,
   mergedCodexConfig,
   modelProviderConfigOverride,
   resolveCommandAuthConfig,
@@ -2275,7 +2277,10 @@ export class CodexSecurity {
       }
       const effectiveConfig = runtime.effectiveConfig ?? requestedConfig;
       const approvalPolicy = scanApprovalPolicy(effectiveConfig);
-      const preflightConfig = scanPreflightCodexConfig(effectiveConfig);
+      const preflightConfig = scanPreflightCodexConfig(
+        effectiveConfig,
+        this.#dependencies.environment,
+      );
       if (runtime.configPath !== undefined) {
         await writeCodexConfig(runtime.configPath, preflightConfig);
       }
@@ -2284,6 +2289,7 @@ export class CodexSecurity {
       const sessionConfig = scanRuntimeCodexConfig(
         effectiveConfig,
         runtimeHome,
+        this.#dependencies.environment,
       );
       if (
         options.expectedPluginVersion !== undefined &&
@@ -2461,7 +2467,11 @@ export class CodexSecurity {
     throwIfAborted(signal);
     const config = await preserveCodexSecurityPluginRegistration(
       runtime.codexHome,
-      sharedCredentialCodexConfig(mergedConfig, runtime.codexHome),
+      sharedCredentialCodexConfig(
+        mergedConfig,
+        runtime.codexHome,
+        this.#dependencies.environment,
+      ),
     );
     await writeCodexConfig(join(runtime.codexHome, "config.toml"), config);
     runtime.plugin = await bootstrapPlugin(
@@ -2869,7 +2879,11 @@ export class CodexSecurity {
         requestedConfig ?? (await mergedCodexConfig(this.config));
       const codexConfig = await preserveCodexSecurityPluginRegistration(
         codexHome,
-        sharedCredentialCodexConfig(mergedConfig, codexHome),
+        sharedCredentialCodexConfig(
+          mergedConfig,
+          codexHome,
+          this.#dependencies.environment,
+        ),
       );
       await writeCodexConfig(join(codexHome, "config.toml"), codexConfig);
       const configPath = join(bootstrapWorkspace, "config-preflight.toml");
@@ -3925,9 +3939,27 @@ export function classifyConnectionFailure(
 export function scanRuntimeCodexConfig(
   config: JsonObject,
   protectedCredentialHome?: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): JsonObject {
   const approvalPolicy = scanApprovalPolicy(config);
   const hardened = structuredClone(config);
+  const modelProvider = scanModelProvider(hardened);
+  if (isExternalModelProvider(modelProvider)) {
+    const providers = hardened["model_providers"];
+    if (
+      modelProvider === "local" &&
+      isRecord(providers) &&
+      isRecord(providers[modelProvider])
+    ) {
+      const provider = providers[modelProvider];
+      provider["base_url"] = localCodexBaseUrl(environment);
+      if (environmentApiKey(environment, modelProvider) === null) {
+        delete provider["env_key"];
+      } else {
+        provider["env_key"] = "LOCAL_API_KEY";
+      }
+    }
+  }
   delete hardened["sandbox_mode"];
   delete hardened["approvals_reviewer"];
   const profiles = hardened["profiles"];
@@ -3968,6 +4000,7 @@ export function scanRuntimeCodexConfig(
 function sharedCredentialCodexConfig(
   config: JsonObject,
   credentialHome: string,
+  environment: Readonly<Record<string, string | undefined>>,
 ): JsonObject {
   const shared: JsonObject = {
     approval_policy: scanApprovalPolicy(config),
@@ -3996,10 +4029,13 @@ function sharedCredentialCodexConfig(
       };
     }
   }
-  return scanRuntimeCodexConfig(shared, credentialHome);
+  return scanRuntimeCodexConfig(shared, credentialHome, environment);
 }
 
-export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
+export function scanPreflightCodexConfig(
+  config: JsonObject,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): JsonObject {
   const safeString = (value: unknown): value is string =>
     typeof value === "string" &&
     value.length > 0 &&
@@ -4083,7 +4119,7 @@ export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
   const modelProvider = scanModelProvider(result);
   if (isExternalModelProvider(modelProvider)) {
     result["model_providers"] = {
-      [modelProvider]: { ...EXTERNAL_CODEX_PROVIDERS[modelProvider] },
+      [modelProvider]: externalCodexProviderConfig(modelProvider, environment),
     };
   } else if (modelProvider === "amazon-bedrock") {
     const providers = config["model_providers"];
