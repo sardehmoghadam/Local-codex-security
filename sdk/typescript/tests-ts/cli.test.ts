@@ -48,9 +48,11 @@ import { scanPreflightCodexConfig } from "../src/api.js";
 import { readKnowledgeBaseSnapshot } from "../src/knowledge-base.js";
 import { CODEX_EXECUTABLE_VERSION, CODEX_SDK_VERSION } from "../src/version.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   CHEAPERINFERENCE_CODEX_PROVIDER,
   DEFAULT_CODEX_CONFIG,
   FIREWORKS_CODEX_PROVIDER,
+  LOCAL_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
   scanModelConfiguration,
 } from "../src/config.js";
@@ -818,6 +820,8 @@ describe("CLI", () => {
               "fireworks",
               "cheaperinference",
               "amazon-bedrock",
+              "local",
+              "avalai",
             ],
           },
           failOnSeverity: { enum: ["critical", "high", "medium", "low"] },
@@ -1515,6 +1519,8 @@ describe("CLI", () => {
       "accounts/fireworks/models/qwen3-235b-a22b",
       FIREWORKS_CODEX_PROVIDER,
     ],
+    ["Local", "local", "qwen3.5-35b-a3b", LOCAL_CODEX_PROVIDER],
+    ["AvalAI", "avalai", "gpt-4o", AVALAI_CODEX_PROVIDER],
   ] as const)(
     "routes bulk scans through %s",
     async (_name, provider, model, providerConfig) => {
@@ -1522,6 +1528,8 @@ describe("CLI", () => {
         `codex-security-${provider}-`,
       );
       const root = temp.path;
+      const environment =
+        provider === "local" ? { LOCAL_API_KEY: "synthetic-local-key" } : {};
       await multiscanInventory(root);
       let config: CodexSecurityConfig | undefined;
       const missingModelError = captureCli(main, "stderr");
@@ -1537,6 +1545,7 @@ describe("CLI", () => {
           ],
           dependencies({
             currentDirectory: root,
+            environment,
             onConfig: (value) => (config = value),
           }),
         ),
@@ -1561,6 +1570,7 @@ describe("CLI", () => {
           ],
           dependencies({
             currentDirectory: root,
+            environment,
             onConfig: (value) => (config = value),
           }),
         ),
@@ -3128,6 +3138,14 @@ describe("CLI", () => {
       FIREWORKS_CODEX_PROVIDER,
     ],
     [
+      "Local",
+      "local",
+      "qwen3.5-35b-a3b",
+      "qwen3.5-35b-a3b",
+      LOCAL_CODEX_PROVIDER,
+    ],
+    ["AvalAI", "avalai", "gpt-4o", "gpt-4o-mini", AVALAI_CODEX_PROVIDER],
+    [
       "Cheaper Inference",
       "cheaperinference",
       "gpt-5.4",
@@ -3165,6 +3183,34 @@ describe("CLI", () => {
       }
     },
   );
+
+  test("routes keyless local scans without an env_key", async () => {
+    let config: CodexSecurityConfig | undefined;
+    expect(
+      await main(
+        ["scan", ".", "--provider", "local", "--model", "qwen3.5-35b-a3b"],
+        capture().stream,
+        capture().stream,
+        dependencies({
+          environment: {
+            LOCAL_API_BASE_URL: "https://gateway.example.test/v1",
+          },
+          onConfig: (value) => (config = value),
+        }),
+      ),
+    ).toBe(0);
+    expect(config?.codexOverrides).toEqual({
+      model: "qwen3.5-35b-a3b",
+      model_provider: "local",
+      model_providers: {
+        local: {
+          name: "Local",
+          base_url: "https://gateway.example.test/v1",
+          wire_api: "responses",
+        },
+      },
+    });
+  });
 
   test("routes scans through the built-in Amazon Bedrock provider", async () => {
     for (const options of [
@@ -3335,6 +3381,8 @@ describe("CLI", () => {
       "openrouter",
       "fireworks",
       "amazon-bedrock",
+      "local",
+      "avalai",
     ] as const) {
       expect(() =>
         parseCodexOverrides([], undefined, undefined, provider),
@@ -3520,6 +3568,10 @@ describe("CLI", () => {
       [
         ["scan", ".", "--provider", "fireworks"],
         "--model is required when using --provider fireworks",
+      ],
+      [
+        ["scan", ".", "--provider", "local"],
+        "--model is required when using --provider local",
       ],
       [["scan", ".", "--effort="], "--effort must not be empty"],
       [["scan", ".", "--mode", "bogus"], "Invalid option"],
@@ -3936,15 +3988,32 @@ describe("CLI", () => {
       FIREWORKS_CODEX_PROVIDER,
       { FIREWORKS_API_KEY: "synthetic-fireworks-key" },
     ],
+    [
+      "Local",
+      "local",
+      "qwen3.5-35b-a3b",
+      LOCAL_CODEX_PROVIDER,
+      { LOCAL_API_KEY: "synthetic-local-key" },
+    ],
+    [
+      "AvalAI",
+      "avalai",
+      "gpt-4o",
+      AVALAI_CODEX_PROVIDER,
+      { AVALAI_API_KEY: "synthetic-avalai-key" },
+    ],
   ] as const)(
     "reruns profile-selected %s scans with their saved provider configuration",
     async (_name, provider, model, providerConfig, environment) => {
-      const savedConfig = scanPreflightCodexConfig({
-        model_provider: "openai",
-        profile: "selected",
-        profiles: { selected: { model, model_provider: provider } },
-        model_providers: { [provider]: providerConfig },
-      });
+      const savedConfig = scanPreflightCodexConfig(
+        {
+          model_provider: "openai",
+          profile: "selected",
+          profiles: { selected: { model, model_provider: provider } },
+          model_providers: { [provider]: providerConfig },
+        },
+        environment,
+      );
       let rerunConfig: CodexSecurityConfig | undefined;
 
       expect(

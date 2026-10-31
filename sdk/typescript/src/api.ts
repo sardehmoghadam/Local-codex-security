@@ -77,9 +77,11 @@ import {
 import {
   DEFAULT_CODEX_CONFIG,
   EXTERNAL_CODEX_PROVIDERS,
+  externalCodexProviderConfig,
   inlineToml,
   isExternalModelProvider,
   hasCommandAuth,
+  localCodexBaseUrl,
   mergedCodexConfig,
   resolveCodexProfile,
   resolveCommandAuthConfig,
@@ -552,6 +554,7 @@ function patchOutcomeFromResponse(
 export type ScanAuthentication =
   | { method: "host"; verified: false }
   | { method: "command"; verified: false }
+  | { method: "none"; verified: false }
   | {
       method: "api_key";
       source: string;
@@ -3868,7 +3871,7 @@ export class CodexSecurity {
         ),
         git,
       ),
-      ...(externalProvider === null
+      ...(externalProvider === null || apiKey === null
         ? {}
         : { [externalProvider.env_key]: apiKey! }),
       CODEX_HOME: runtime.codexHome,
@@ -4091,9 +4094,10 @@ export class CodexSecurity {
         runtime.codexHome,
       );
       const approvalPolicy = scanApprovalPolicy(effectiveConfig);
-      const preflightConfig = scanPreflightCodexConfig(effectiveConfig);
-      const resolvedConfig = resolveCodexProfile(effectiveConfig);
-      const providers = resolvedConfig["model_providers"];
+      const preflightConfig = scanPreflightCodexConfig(
+        effectiveConfig,
+        this.#dependencies.environment,
+      );
       if (runtime.configPath !== undefined) {
         await writeCodexConfig(runtime.configPath, {
           ...preflightConfig,
@@ -4108,19 +4112,25 @@ export class CodexSecurity {
       }
       const runtimeHome = await realpath(runtime.codexHome);
       requireOutputOutsideRepositories(protectedRoots, runtimeHome, "runtime");
-      await runtime.providerProfile?.cleanup();
-      if (isRecord(providers) && Object.keys(providers).length > 0) {
-        runtime.providerProfile = await createProviderProfile(
-          runtimeHome,
-          effectiveConfig,
-        );
-      } else {
-        delete runtime.providerProfile;
-      }
       const sessionConfig = scanRuntimeCodexConfig(
         effectiveConfig,
         runtimeHome,
+        this.#dependencies.environment,
       );
+      // Codex reads provider definitions from the native profile, so write the
+      // same environment-adjusted table the runtime session uses.
+      const providers = nativeProfileModelProviders(
+        effectiveConfig,
+        this.#dependencies.environment,
+      );
+      await runtime.providerProfile?.cleanup();
+      if (providers !== undefined && Object.keys(providers).length > 0) {
+        runtime.providerProfile = await createProviderProfile(runtimeHome, {
+          model_providers: providers,
+        });
+      } else {
+        delete runtime.providerProfile;
+      }
       if (
         options.expectedPluginVersion !== undefined &&
         runtime.plugin.version !== options.expectedPluginVersion
@@ -4167,7 +4177,8 @@ export class CodexSecurity {
         !runtime.credentialsAvailable &&
         apiKey === null &&
         !commandAuth &&
-        authentication.method !== "aws_credentials"
+        authentication.method !== "aws_credentials" &&
+        authentication.method !== "none"
       ) {
         throw new AuthenticationRequiredError(NO_CREDENTIALS_MESSAGE);
       }
@@ -4257,7 +4268,11 @@ export class CodexSecurity {
     throwIfAborted(signal);
     const config = await preserveCodexSecurityPluginRegistration(
       runtime.codexHome,
-      sharedCredentialCodexConfig(mergedConfig, runtime.codexHome),
+      sharedCredentialCodexConfig(
+        mergedConfig,
+        runtime.codexHome,
+        this.#dependencies.environment,
+      ),
     );
     await writeCodexConfig(join(runtime.codexHome, "config.toml"), config);
     runtime.plugin = await bootstrapPlugin(
@@ -4727,7 +4742,11 @@ export class CodexSecurity {
       const ambientHome = scanCodexHome(processEnvironment);
       const codexConfig = await preserveCodexSecurityPluginRegistration(
         codexHome,
-        sharedCredentialCodexConfig(requestedConfig, codexHome),
+        sharedCredentialCodexConfig(
+          requestedConfig,
+          codexHome,
+          this.#dependencies.environment,
+        ),
       );
       await writeCodexConfig(join(codexHome, "config.toml"), codexConfig);
       const configPath = join(bootstrapWorkspace, "config-preflight.toml");
@@ -5603,6 +5622,9 @@ export function scanAuthentication(
     return { method: "stored_credentials", verified: false };
   }
   const key = environmentApiKeyEntry(environment, modelProvider);
+  if (key === null && modelProvider === "local") {
+    return { method: "none", verified: false };
+  }
   if (key === null && isExternalModelProvider(modelProvider)) {
     const provider = EXTERNAL_CODEX_PROVIDERS[modelProvider];
     if (preflight && auth === "auto") {
@@ -5692,7 +5714,9 @@ export function selectedScanEnvironment(
       if (
         key === "OPENROUTER_API_KEY" ||
         key === "FIREWORKS_API_KEY" ||
-        key === "CHEAPER_INFERENCE_API_KEY"
+        key === "CHEAPER_INFERENCE_API_KEY" ||
+        key === "LOCAL_API_KEY" ||
+        key === "AVALAI_API_KEY"
       ) {
         return (
           !bedrockProvider &&
@@ -5736,7 +5760,9 @@ function environmentApiKeyEntry(
     | "CODEX_API_KEY"
     | "OPENROUTER_API_KEY"
     | "FIREWORKS_API_KEY"
-    | "CHEAPER_INFERENCE_API_KEY";
+    | "CHEAPER_INFERENCE_API_KEY"
+    | "LOCAL_API_KEY"
+    | "AVALAI_API_KEY";
   value: string;
 } | null {
   const keys = isExternalModelProvider(modelProvider)
@@ -5879,9 +5905,27 @@ function deepScanParentConfig(config: JsonObject): JsonObject {
 export function scanRuntimeCodexConfig(
   config: JsonObject,
   protectedCredentialHome?: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): JsonObject {
   const approvalPolicy = scanApprovalPolicy(config);
   const hardened = structuredClone(config);
+  const modelProvider = scanModelProvider(hardened);
+  if (isExternalModelProvider(modelProvider)) {
+    const providers = hardened["model_providers"];
+    if (
+      modelProvider === "local" &&
+      isRecord(providers) &&
+      isRecord(providers[modelProvider])
+    ) {
+      const provider = providers[modelProvider];
+      provider["base_url"] = localCodexBaseUrl(environment);
+      if (environmentApiKey(environment, modelProvider) === null) {
+        delete provider["env_key"];
+      } else {
+        provider["env_key"] = "LOCAL_API_KEY";
+      }
+    }
+  }
   delete hardened["sandbox_mode"];
   delete hardened["approvals_reviewer"];
   const profiles = hardened["profiles"];
@@ -6004,6 +6048,7 @@ function policyCodexConfig(config: JsonObject): JsonObject {
 function sharedCredentialCodexConfig(
   config: JsonObject,
   credentialHome: string,
+  environment: Readonly<Record<string, string | undefined>>,
 ): JsonObject {
   // Providers stay in private session profiles. Codex merges provider tables, so
   // persisting them here would mix credentials from concurrent scans.
@@ -6014,10 +6059,13 @@ function sharedCredentialCodexConfig(
   for (const key of CODEX_AUTH_CONFIG_KEYS) {
     if (Object.hasOwn(config, key)) shared[key] = structuredClone(config[key]!);
   }
-  return scanRuntimeCodexConfig(shared, credentialHome);
+  return scanRuntimeCodexConfig(shared, credentialHome, environment);
 }
 
-export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
+export function scanPreflightCodexConfig(
+  config: JsonObject,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): JsonObject {
   const safeString = (value: unknown): value is string =>
     typeof value === "string" &&
     value.length > 0 &&
@@ -6146,7 +6194,7 @@ export function scanPreflightCodexConfig(config: JsonObject): JsonObject {
   const modelProvider = scanModelProvider(result);
   if (isExternalModelProvider(modelProvider)) {
     result["model_providers"] = {
-      [modelProvider]: { ...EXTERNAL_CODEX_PROVIDERS[modelProvider] },
+      [modelProvider]: externalCodexProviderConfig(modelProvider, environment),
     };
   } else if (modelProvider === "amazon-bedrock") {
     const providers = resolved["model_providers"];
@@ -6209,6 +6257,24 @@ async function requireCurrentDeepScanPlugin(
       "Deep Scan requires the current plugin's direct engine and isolated worker runtime support. Update the custom plugin or use the bundled plugin.",
     );
   }
+}
+
+/**
+ * Codex loads provider definitions from the native profile file. Apply the same
+ * environment-derived fields (for example LOCAL_API_BASE_URL) that the runtime
+ * session uses so the profile never pins a stale endpoint or credential name.
+ */
+function nativeProfileModelProviders(
+  config: JsonObject,
+  environment: ProcessEnvironment,
+): JsonObject | undefined {
+  const adjusted = scanRuntimeCodexConfig(
+    resolveCodexProfile(config),
+    undefined,
+    environment,
+  );
+  const providers = adjusted["model_providers"];
+  return isRecord(providers) ? (providers as JsonObject) : undefined;
 }
 
 function selectedWorkerRuntimeConfig(

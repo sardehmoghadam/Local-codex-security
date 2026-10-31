@@ -259,13 +259,27 @@ scan artifacts remain available.
 
 ## Other providers
 
-Scans support OpenAI, Amazon Bedrock, OpenRouter, Fireworks AI, and Cheaper Inference. Bedrock uses
-AWS credentials and does not require a separate OpenAI login. See
+Scans support OpenAI, Amazon Bedrock, OpenRouter, Fireworks AI, Cheaper Inference, AvalAI, and a
+keyless local gateway. Bedrock uses AWS credentials and does not require a separate OpenAI login. See
 [Bedrock setup](docs/bedrock.md) for AWS profiles, regions, and model access.
 
 For OpenRouter, Fireworks AI, and Cheaper Inference, set the provider's API key and choose a supported
 model. See [provider configuration](sdk/typescript/docs/cli.md#native-command-authentication-and-other-providers)
 for examples.
+
+For AvalAI, set `AVALAI_API_KEY` and pass `--provider avalai`. The `local` provider targets an
+OpenAI-compatible gateway and needs no API key unless that gateway requires one:
+
+```bash
+export AVALAI_API_KEY="<your-avalai-api-key>"
+codex-security scan . --provider avalai --model gpt-4o
+
+# Optional: set this only when your local gateway requires authentication.
+export LOCAL_API_KEY="<your-local-api-key>"
+# Optional: point the local provider at your own gateway.
+export LOCAL_API_BASE_URL="http://localhost:1234/v1"
+codex-security scan . --provider local --model qwen3.5-35b-a3b
+```
 
 ## Documentation
 

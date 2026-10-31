@@ -52,9 +52,11 @@ import {
   initialCredentialsAvailable,
 } from "../src/api.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   CHEAPERINFERENCE_CODEX_PROVIDER,
   DEFAULT_CODEX_CONFIG,
   FIREWORKS_CODEX_PROVIDER,
+  LOCAL_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
   resolveCodexProfile,
   type JsonObject,
@@ -161,6 +163,32 @@ const EXTERNAL_PROVIDER_CASES = [
     "gpt-5.4",
     CHEAPERINFERENCE_CODEX_PROVIDER,
   ],
+  ["Local", "local", "LOCAL_API_KEY", "qwen3.5-35b-a3b", LOCAL_CODEX_PROVIDER],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
+] as const;
+const REQUIRED_API_KEY_PROVIDER_CASES = [
+  [
+    "OpenRouter",
+    "openrouter",
+    "OPENROUTER_API_KEY",
+    "anthropic/claude-sonnet-4.5",
+    OPENROUTER_CODEX_PROVIDER,
+  ],
+  [
+    "Fireworks AI",
+    "fireworks",
+    "FIREWORKS_API_KEY",
+    "accounts/fireworks/models/qwen3-235b-a22b",
+    FIREWORKS_CODEX_PROVIDER,
+  ],
+  [
+    "Cheaper Inference",
+    "cheaperinference",
+    "CHEAPER_INFERENCE_API_KEY",
+    "gpt-5.4",
+    CHEAPERINFERENCE_CODEX_PROVIDER,
+  ],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
 ] as const;
 const BEDROCK_AUTHENTICATION_CASES = [
   [
@@ -1005,7 +1033,7 @@ describe("CodexSecurity orchestration", () => {
     await client.close();
   });
 
-  test.each(EXTERNAL_PROVIDER_CASES)(
+  test.each(REQUIRED_API_KEY_PROVIDER_CASES)(
     "requires the %s API key instead of accepting another provider's credentials",
     async (name, provider, apiKey, model, providerConfig) => {
       const { repository } = await repositoryDirectories();
@@ -1046,7 +1074,7 @@ describe("CodexSecurity orchestration", () => {
     },
   );
 
-  test.each(EXTERNAL_PROVIDER_CASES)(
+  test.each(REQUIRED_API_KEY_PROVIDER_CASES)(
     "preflights %s with auto authentication without credentials or runtime startup",
     async (_name, provider, apiKey, model, providerConfig) => {
       const { repository } = await repositoryDirectories();
@@ -1147,6 +1175,100 @@ describe("CodexSecurity orchestration", () => {
     },
   );
 
+  test("runs local scans without an API key", async () => {
+    const root = await temporaryDirectory();
+    const repository = join(root, "repository");
+    const codexHome = join(root, "codex-home");
+    const scanDir = join(root, "scan");
+    await mkdir(repository);
+    await mkdir(codexHome);
+    await mkdir(scanDir, { mode: 0o700 });
+    let codexOptions: CodexOptions | null = null;
+    let authentication: ScanAuthentication | undefined;
+    const environment = {
+      OPENAI_API_KEY: "synthetic-openai-key",
+      LOCAL_API_BASE_URL: "https://gateway.example.test/v1",
+    };
+    const client = new TestClient(
+      {
+        codexOverrides: {
+          model: "qwen3.5-35b-a3b",
+          model_provider: "local",
+          model_providers: { local: LOCAL_CODEX_PROVIDER },
+        },
+      },
+      {
+        environment,
+        prepareRuntime: async () => ({
+          ...preparedRuntime(codexHome),
+          environment,
+          credentialsAvailable: false,
+        }),
+        resolvePluginPython: async () => "/managed/python",
+        prepareOutputDir: async () => scanDir,
+        repositoryRevision: async () => "deadbeef",
+        resolveCodexCommand: () => {
+          throw new Error("local must not sign in to OpenAI");
+        },
+        createCodex: (options: CodexOptions) => {
+          codexOptions = options;
+          return {
+            startThread: () => ({
+              id: null,
+              async runStreamed() {
+                await copyCompletedScan(root);
+                return { events: completedEvents() };
+              },
+            }),
+          };
+        },
+      },
+    );
+
+    const preflight = await client.preflight(repository);
+    expect(preflight).toMatchObject({
+      model: "qwen3.5-35b-a3b",
+      modelProvider: "local",
+      authentication: { method: "none", verified: false },
+    });
+    expect(JSON.stringify(preflight)).not.toContain("synthetic-");
+    await expect(
+      client.run(repository, {
+        onAuthentication: (selected) => {
+          authentication = selected;
+        },
+      }),
+    ).resolves.toMatchObject({ threadId: "thread-1" });
+    expect(authentication).toEqual({ method: "none", verified: false });
+    expect((codexOptions as CodexOptions | null)?.env).not.toHaveProperty(
+      "LOCAL_API_KEY",
+    );
+    expect((codexOptions as CodexOptions | null)?.env).not.toHaveProperty(
+      "OPENAI_API_KEY",
+    );
+    expect((codexOptions as CodexOptions | null)?.apiKey).toBeUndefined();
+    expect(
+      (codexOptions as CodexOptions | null)?.config?.["model_providers"],
+    ).toBeUndefined();
+    const nativeProfile = (codexOptions as { nativeProfile?: string } | null)
+      ?.nativeProfile;
+    expect(nativeProfile).toBeDefined();
+    expect(
+      parseToml(
+        await readFile(join(codexHome, `${nativeProfile}.config.toml`), "utf8"),
+      ),
+    ).toEqual({
+      model_providers: {
+        local: {
+          name: "Local",
+          base_url: "https://gateway.example.test/v1",
+          wire_api: "responses",
+        },
+      },
+    });
+    await client.close();
+  });
+
   test.each(BEDROCK_AUTHENTICATION_CASES)(
     "runs Amazon Bedrock scans through %s without signing in to OpenAI",
     async (_name, credentials, source) => {
@@ -1158,6 +1280,7 @@ describe("CodexSecurity orchestration", () => {
         CODEX_API_KEY: "synthetic-codex-key",
         OPENROUTER_API_KEY: "synthetic-openrouter-key",
         FIREWORKS_API_KEY: "synthetic-fireworks-key",
+        LOCAL_API_KEY: "synthetic-local-key",
         ...credentials,
       };
       const client = new TestClient(
@@ -1216,6 +1339,8 @@ describe("CodexSecurity orchestration", () => {
         "CODEX_API_KEY",
         "OPENROUTER_API_KEY",
         "FIREWORKS_API_KEY",
+        "LOCAL_API_KEY",
+        "AVALAI_API_KEY",
       ]) {
         expect(createCodex.mock.lastCall?.[0]?.env).not.toHaveProperty(key);
       }

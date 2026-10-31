@@ -116,6 +116,22 @@ Bedrock scans use AWS credentials and model access. They do not require
 [Bedrock guide](https://github.com/openai/codex-security/blob/main/docs/bedrock.md)
 for setup, model selection, and verification.
 
+### AvalAI and local gateways
+
+`--provider avalai` uses `AVALAI_API_KEY`. `--provider local` targets an
+OpenAI-compatible gateway and needs no API key unless that gateway requires one:
+
+```bash
+export AVALAI_API_KEY="<your-avalai-api-key>"
+npx @openai/codex-security scan . --provider avalai --model gpt-4o
+
+# Optional: set this only when your local gateway requires authentication.
+export LOCAL_API_KEY="<your-local-api-key>"
+# Optional: point the local provider at your own gateway.
+export LOCAL_API_BASE_URL="http://localhost:1234/v1"
+npx @openai/codex-security scan . --provider local --model qwen3.5-35b-a3b
+```
+
 ## Read existing Cloud findings
 
 The Security plugin includes `$cloud-findings` for accounts where Codex Security

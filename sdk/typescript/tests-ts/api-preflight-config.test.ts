@@ -7,9 +7,12 @@ import {
   scanRuntimeCodexConfig,
 } from "../src/api.js";
 import {
+  AVALAI_CODEX_PROVIDER,
   CHEAPERINFERENCE_CODEX_PROVIDER,
   FIREWORKS_CODEX_PROVIDER,
   OPENROUTER_CODEX_PROVIDER,
+  externalCodexProviderConfig,
+  localCodexBaseUrl,
   scanModelProvider,
   writeCodexConfig,
   type JsonObject,
@@ -42,6 +45,19 @@ const EXTERNAL_PROVIDER_CASES = [
     "gpt-5.4",
     CHEAPERINFERENCE_CODEX_PROVIDER,
   ],
+  [
+    "Local",
+    "local",
+    "LOCAL_API_KEY",
+    "qwen3.5-35b-a3b",
+    {
+      name: "Local",
+      base_url: "https://local.dev/v1",
+      env_key: "LOCAL_API_KEY",
+      wire_api: "responses",
+    },
+  ],
+  ["AvalAI", "avalai", "AVALAI_API_KEY", "gpt-4o", AVALAI_CODEX_PROVIDER],
 ] as const;
 
 afterEach(cleanup);
@@ -593,18 +609,74 @@ describe("CodexSecurity preflight configuration", () => {
     });
   });
 
+  test("uses the default base URL for the local provider", () => {
+    expect(localCodexBaseUrl({})).toBe("https://local.dev/v1");
+    expect(localCodexBaseUrl({ LOCAL_API_BASE_URL: "" })).toBe(
+      "https://local.dev/v1",
+    );
+    expect(localCodexBaseUrl({ LOCAL_API_BASE_URL: "   " })).toBe(
+      "https://local.dev/v1",
+    );
+  });
+
+  test("overrides the local provider base URL from the environment", () => {
+    expect(
+      localCodexBaseUrl({ LOCAL_API_BASE_URL: "http://localhost:1234/v1" }),
+    ).toBe("http://localhost:1234/v1");
+    expect(
+      localCodexBaseUrl({ LOCAL_API_BASE_URL: "  http://localhost:1234/v1  " }),
+    ).toBe("http://localhost:1234/v1");
+  });
+
+  test("omits the optional local API key from keyless provider configuration", () => {
+    expect(
+      externalCodexProviderConfig("local", {
+        LOCAL_API_BASE_URL: "https://gateway.example.test/v1",
+      }),
+    ).toEqual({
+      name: "Local",
+      base_url: "https://gateway.example.test/v1",
+      wire_api: "responses",
+    });
+    expect(
+      externalCodexProviderConfig("local", { LOCAL_API_KEY: "   " }),
+    ).not.toHaveProperty("env_key");
+  });
+
+  test("retains the local API key setting when a key is available", () => {
+    const expected = {
+      name: "Local",
+      base_url: "https://local.dev/v1",
+      env_key: "LOCAL_API_KEY",
+      wire_api: "responses",
+    };
+    expect(
+      externalCodexProviderConfig("local", {
+        LOCAL_API_KEY: "synthetic-local-key",
+      }),
+    ).toEqual(expected);
+    expect(
+      externalCodexProviderConfig("local", {
+        Local_Api_Key: "synthetic-local-key",
+      }),
+    ).toEqual(expected);
+  });
+
   test.each(EXTERNAL_PROVIDER_CASES)(
     "keeps the %s provider in sanitized scan configuration",
     (_name, provider, _apiKey, model, providerConfig) => {
       expect(
-        scanPreflightCodexConfig({
-          model,
-          model_provider: provider,
-          model_providers: {
-            [provider]: providerConfig,
-            private: { api_key: "synthetic-secret" },
+        scanPreflightCodexConfig(
+          {
+            model,
+            model_provider: provider,
+            model_providers: {
+              [provider]: providerConfig,
+              private: { api_key: "synthetic-secret" },
+            },
           },
-        }),
+          { [_apiKey]: "synthetic-provider-key" },
+        ),
       ).toEqual({
         model,
         model_provider: provider,
@@ -616,18 +688,21 @@ describe("CodexSecurity preflight configuration", () => {
   test.each(EXTERNAL_PROVIDER_CASES)(
     "preserves the selected %s profile provider in saved scan recipes",
     (_name, provider, _apiKey, model, providerConfig) => {
-      const config = scanPreflightCodexConfig({
-        model_provider: "openai",
-        profile: "selected",
-        profiles: { selected: { model, model_provider: provider } },
-        model_providers: {
-          [provider]: {
-            ...providerConfig,
-            api_key: "synthetic-provider-secret",
+      const config = scanPreflightCodexConfig(
+        {
+          model_provider: "openai",
+          profile: "selected",
+          profiles: { selected: { model, model_provider: provider } },
+          model_providers: {
+            [provider]: {
+              ...providerConfig,
+              api_key: "synthetic-provider-secret",
+            },
+            private: { bearer_token: "synthetic-unrelated-secret" },
           },
-          private: { bearer_token: "synthetic-unrelated-secret" },
         },
-      });
+        { [_apiKey]: "synthetic-provider-key" },
+      );
 
       expect(config).toEqual({
         model_provider: "openai",

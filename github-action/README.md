@@ -146,6 +146,12 @@ require a reviewed Action revision containing the `provider` input;
 credentials. For CLI settings beyond the Action's named inputs, use the
 [CLI workflow](../examples/github-actions/README.md).
 
+This Action forwards credentials only for `openai`, `amazon-bedrock`,
+`openrouter`, and `fireworks`. The CLI's other providers, including
+`--provider avalai` and the keyless `--provider local`, are not wired to the
+Action's inputs; run them through the
+[CLI workflow](../examples/github-actions/README.md) instead.
+
 ## Scan with Amazon Bedrock
 
 Set `provider: amazon-bedrock` and supply the exact Bedrock model ID your AWS

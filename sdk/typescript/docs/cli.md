@@ -235,6 +235,21 @@ codex-security scan . --provider fireworks --model accounts/fireworks/models/qwe
 
 export CHEAPER_INFERENCE_API_KEY="<your-cheaper-inference-api-key>"
 codex-security scan . --provider cheaperinference --model gpt-5.4
+
+export AVALAI_API_KEY="<your-avalai-api-key>"
+codex-security scan . --provider avalai --model gpt-4o
+```
+
+`--provider local` targets an OpenAI-compatible gateway. It needs no API key
+unless the gateway requires one, and `LOCAL_API_BASE_URL` overrides the
+default gateway URL:
+
+```bash
+# Optional: set this only when your local gateway requires authentication.
+export LOCAL_API_KEY="<your-local-api-key>"
+# Optional: point the local provider at your own gateway.
+export LOCAL_API_BASE_URL="http://localhost:1234/v1"
+codex-security scan . --provider local --model qwen3.5-35b-a3b
 ```
 
 ### Amazon Bedrock

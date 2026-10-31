@@ -43,13 +43,59 @@ export const CHEAPERINFERENCE_CODEX_PROVIDER = {
   wire_api: "responses",
 } as const satisfies JsonObject;
 
+export const LOCAL_CODEX_PROVIDER = {
+  name: "Local",
+  base_url: localCodexBaseUrl(),
+  env_key: "LOCAL_API_KEY",
+  wire_api: "responses",
+} as const satisfies JsonObject;
+
+/**
+ * Resolves the base URL used for the local Codex provider. The URL can be
+ * overridden with LOCAL_API_BASE_URL so local gateways (for example LM Studio
+ * or Ollama) can be targeted without changing the generated configuration.
+ */
+export function localCodexBaseUrl(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const override = environment["LOCAL_API_BASE_URL"]?.trim();
+  return override === undefined || override === ""
+    ? "https://local.dev/v1"
+    : override;
+}
+
+export const AVALAI_CODEX_PROVIDER = {
+  name: "AvalAI",
+  base_url: "https://api.avalai.ir/v1",
+  env_key: "AVALAI_API_KEY",
+  wire_api: "responses",
+} as const satisfies JsonObject;
+
 export const EXTERNAL_CODEX_PROVIDERS = {
   openrouter: OPENROUTER_CODEX_PROVIDER,
   fireworks: FIREWORKS_CODEX_PROVIDER,
   cheaperinference: CHEAPERINFERENCE_CODEX_PROVIDER,
+  local: LOCAL_CODEX_PROVIDER,
+  avalai: AVALAI_CODEX_PROVIDER,
 } as const;
 
 export type ExternalModelProvider = keyof typeof EXTERNAL_CODEX_PROVIDERS;
+
+export function externalCodexProviderConfig(
+  provider: ExternalModelProvider,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): JsonObject {
+  const config: JsonObject = { ...EXTERNAL_CODEX_PROVIDERS[provider] };
+  if (provider === "local") {
+    config["base_url"] = localCodexBaseUrl(environment);
+    const hasApiKey = Object.entries(environment).some(
+      ([name, value]) =>
+        name.toUpperCase() === "LOCAL_API_KEY" && Boolean(value?.trim()),
+    );
+    if (!hasApiKey) delete config["env_key"];
+  }
+  return config;
+}
 
 export function isExternalModelProvider(
   provider: unknown,

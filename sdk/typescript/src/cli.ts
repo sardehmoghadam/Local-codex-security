@@ -170,7 +170,7 @@ import {
 } from "./bulk-scan-discovery.js";
 import {
   DEFAULT_CODEX_CONFIG,
-  EXTERNAL_CODEX_PROVIDERS,
+  externalCodexProviderConfig,
   isExternalModelProvider,
   mergeCodexOverrides,
   hasCommandAuth,
@@ -471,6 +471,8 @@ const PROVIDER_OPTION = z
     "fireworks",
     "cheaperinference",
     "amazon-bedrock",
+    "local",
+    "avalai",
   ])
   .default("openai")
   .describe("Inference provider for scans.");
@@ -4178,6 +4180,8 @@ export async function main(
                     options.model,
                     options.effort,
                     options.provider,
+                    undefined,
+                    dependencies.environment,
                   ),
                 },
                 generation: {
@@ -4471,6 +4475,7 @@ export async function main(
                 options.effort,
                 options.provider,
                 project?.input.codex,
+                dependencies.environment,
               ),
             },
             directory,
@@ -5099,6 +5104,7 @@ export async function main(
                 options.effort,
                 options.provider,
                 project?.input.codex,
+                dependencies.environment,
               ),
             },
             directory,
@@ -5417,6 +5423,7 @@ export async function main(
                   options.effort,
                   options.provider,
                   project?.input.codex,
+                  dependencies.environment,
                 ),
               ),
               pluginPath: options.pluginPath,
@@ -8467,7 +8474,10 @@ async function runSkill(
           overrides["model_providers"] as Record<string, JsonObject> | undefined
         )?.[provider] ??
         (isExternalModelProvider(provider)
-          ? EXTERNAL_CODEX_PROVIDERS[provider]
+          ? externalCodexProviderConfig(
+              provider,
+              options.environment ?? dependencies.environment,
+            )
           : undefined)));
   const effectiveOverrides = resolveCommandAuthConfig(
     mergeCodexOverrides(
@@ -9474,7 +9484,13 @@ async function executeScan(
       providerOptions = {
         provider,
         providerConfiguration: isExternalModelProvider(provider)
-          ? { ...EXTERNAL_CODEX_PROVIDERS[provider], ...providerConfiguration }
+          ? {
+              ...externalCodexProviderConfig(
+                provider,
+                dependencies.environment,
+              ),
+              ...providerConfiguration,
+            }
           : providerConfiguration,
       };
     }
@@ -9722,7 +9738,9 @@ async function executeScan(
                 ? `Using AWS credentials from ${authentication.source}`
                 : authentication.method === "command"
                   ? "Using native Codex command authentication"
-                  : "Using stored Codex credentials",
+                  : authentication.method === "none"
+                    ? "No API key required"
+                    : "Using stored Codex credentials",
           );
           if (bedrock) {
             dashboard.note(
@@ -9745,6 +9763,8 @@ async function executeScan(
           );
         } else if (authentication.method === "command") {
           progress?.stage("Authentication: native Codex command.");
+        } else if (authentication.method === "none") {
+          progress?.stage("Authentication: no API key required.");
         } else {
           progress?.stage("Authentication: stored Codex credentials.");
         }
@@ -10460,6 +10480,12 @@ function authenticationFailureMessage(
       "Check your Amazon Bedrock bearer token or AWS credential chain."
     );
   }
+  if (authentication?.method === "none") {
+    return (
+      "Authentication failed for the local provider. " +
+      "Confirm the gateway accepts anonymous requests or set LOCAL_API_KEY."
+    );
+  }
   if (
     authentication?.method === "stored_credentials" &&
     authentication.credentialType === "api_key"
@@ -10563,6 +10589,12 @@ function scanFailureMessage(
     case "forbidden":
       if (authentication?.method === "command") {
         return `${detail}The configured Codex provider denied access. Check the command credentials and provider permissions.`;
+      }
+      if (authentication?.method === "none") {
+        return (
+          "The local provider rejected the request. " +
+          "Check the model name and the local gateway configuration."
+        );
       }
       return authentication?.method === "api_key"
         ? `${detail}The API key from ${authentication.source} cannot access the configured model. ` +
@@ -11034,6 +11066,7 @@ export function parseCodexOverrides(
   effort?: ModelCliOptions["effort"],
   provider?: "openai" | "amazon-bedrock" | ExternalModelProvider,
   defaults?: JsonObject,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
 ): JsonObject {
   const result = Object.create(null) as JsonObject;
   if (model !== undefined) result["model"] = model;
@@ -11041,7 +11074,7 @@ export function parseCodexOverrides(
   if (isExternalModelProvider(provider)) {
     result["model_provider"] = provider;
     result["model_providers"] = {
-      [provider]: { ...EXTERNAL_CODEX_PROVIDERS[provider] },
+      [provider]: externalCodexProviderConfig(provider, environment),
     };
   } else if (provider === "amazon-bedrock") {
     result["model_provider"] = provider;

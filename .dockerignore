@@ -6,6 +6,7 @@ sdk/typescript/tests-ts/*.test.ts
 **/.env
 **/.env.*
 **/.npmrc
+**/_bundled_plugin
 **/coverage
 **/dist
 **/node_modules
