@@ -1,0 +1,144 @@
+# Codex Security in GitLab CI - variant 4 of 4.
+# Delivery: prebuilt scanner image. Scope: Git changes.
+#
+# Merge request pipelines scan only the changes the MR introduces (--diff);
+# branch, scheduled, and web pipelines fall back to the full repository.
+#
+# Use this file as a pipeline (.gitlab-ci.yml) or include it from one. The job
+# only needs an image reference; nothing is built during the pipeline.
+#
+# Build and publish the image once from this fork:
+#   docker build --target scanner -t registry.example.com/security/codex-security:0.8.2 .
+#   docker push registry.example.com/security/codex-security:0.8.2
+#
+# That image runs as uid 10001, has no curl, and ships an entrypoint, so publish a
+# GitLab overlay rather than pointing SCANNER_IMAGE at scanner-release directly:
+#   FROM registry.example.com/security/codex-security:0.8.2
+#   USER root
+#   RUN apt-get update \
+#       && apt-get install --no-install-recommends --yes curl \
+#       && rm -rf /var/lib/apt/lists/*
+# A job that keeps USER 10001 needs SCAN_TARGET and REPORT_DIR to be writable.
+#
+# CI/CD variables (Settings > CI/CD > Variables):
+#   LOCAL_API_BASE_URL    required, e.g. http://host.docker.internal:1234/v1
+#   RISQ_URL              required, no trailing slash
+#   RIS_P_ENDPOINT_TOKEN  required, masked - it travels in the request URL
+#   RIS_P_SECRET          required, masked
+#   LOCAL_API_KEY         optional, masked; omit for an anonymous local gateway
+#   SCANNER_IMAGE, SCAN_TARGET, SCAN_MODEL, SCAN_MODE, SCAN_EFFORT,
+#   FAIL_ON_SEVERITY   optional overrides
+#
+# Runner: Docker executor with
+#   security_opt = ["seccomp=/path/to/docker/codex-security-seccomp.json"]
+# and, on hosts that restrict unprivileged user namespaces,
+#   security_opt = ["apparmor=codex-security-container"]
+# after loading docker/codex-security.apparmor on the host. Codex needs Bubblewrap
+# for filesystem-restricted source inspection; do not disable sandboxing.
+# When the inference gateway runs on the runner host, register
+#   extra_hosts = ["host.docker.internal:host-gateway"]
+
+stages: [security]
+
+variables:
+  SCANNER_IMAGE: "registry.example.com/security/codex-security:0.8.2"
+  SCAN_TARGET: "$CI_PROJECT_DIR"
+  SCAN_PROVIDER: local
+  SCAN_MODEL: qwen3.5-35b-a3b
+  SCAN_MODE: standard # standard | deep
+  SCAN_EFFORT: high # passed through to Codex unchanged
+  FAIL_ON_SEVERITY: none # none | critical | high | medium | low
+  REPORT_DIR: "$CI_PROJECT_DIR/security-results"
+  CODEX_SECURITY_STATE_DIR: "/tmp/codex-security-state"
+  PYTHON: /usr/bin/python3
+  GIT_DEPTH: "0" # --diff needs a full, clean checkout at the head revision
+
+codex-security:
+  stage: security
+  image:
+    name: "$SCANNER_IMAGE"
+    entrypoint: [""] # the image ships an entrypoint; GitLab needs a shell
+  timeout: 2 hours
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+  allow_failure:
+    exit_codes: [1] # 1 = findings at or above FAIL_ON_SEVERITY
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - security-results/
+    # Code scanning ingestion is GitLab Ultimate only (18.11 behind the
+    # sarif_ingestion flag, GA in 19.2) and only ingests jobs that succeed:
+    # reports:
+    #   sarif: security-results/results.sarif
+  script:
+    - |
+      set -eu
+      CLI=codex-security
+      $CLI --version
+      python3 --version
+
+      # The output directory must be empty and outside the scanned repository.
+      SCAN_DIR="$(mktemp -d)"
+      RESULT_JSON="$(mktemp)"
+      SEVERITY_ARG=""
+      if [ "$FAIL_ON_SEVERITY" != "none" ]; then SEVERITY_ARG="--fail-on-severity $FAIL_ON_SEVERITY"; fi
+
+      # GitLab checks out a detached merge ref for MR pipelines, so --diff scopes
+      # the scan to exactly what the MR changes. Other pipeline sources fall back
+      # to the full repository. Use --diff HEAD^1 instead of
+      # CI_MERGE_REQUEST_DIFF_BASE_SHA for merge-base semantics.
+      # --diff refuses a checkout with local changes or untracked files, so nothing
+      # may be written into $CI_PROJECT_DIR before the scan; reports land in
+      # REPORT_DIR only afterwards.
+      DIFF_ARG=""
+      if [ -n "${CI_MERGE_REQUEST_DIFF_BASE_SHA:-}" ]; then
+        DIFF_ARG="--diff $CI_MERGE_REQUEST_DIFF_BASE_SHA"
+      fi
+
+      scan_status=0
+      $CLI scan "$SCAN_TARGET" \
+        --provider "$SCAN_PROVIDER" \
+        --model "$SCAN_MODEL" \
+        --mode "$SCAN_MODE" \
+        --effort "$SCAN_EFFORT" \
+        --auth auto \
+        --headless \
+        --format json \
+        --output-dir "$SCAN_DIR" \
+        $SEVERITY_ARG $DIFF_ARG > "$RESULT_JSON" || scan_status=$?
+      echo "scan exit code: $scan_status"
+
+      mkdir -p "$REPORT_DIR"
+      mv "$RESULT_JSON" "$REPORT_DIR/result.json"
+      for artifact in report.md findings.json scan-manifest.json coverage.json; do
+        if [ -f "$SCAN_DIR/$artifact" ]; then cp "$SCAN_DIR/$artifact" "$REPORT_DIR/$artifact"; fi
+      done
+
+      # 0 = complete, 1 = severity policy hit. 2, 130, and 143 mean the scan did
+      # not produce findings, so nothing is exported or uploaded.
+      if [ "$scan_status" = 0 ] || [ "$scan_status" = 1 ]; then
+        $CLI export "$SCAN_DIR" --export-format json --output "$REPORT_DIR/ris-p-findings.json"
+        $CLI export "$SCAN_DIR" --export-format sarif \
+          --source-root "$SCAN_TARGET" --output "$REPORT_DIR/results.sarif" \
+          || echo "SARIF export failed; the findings JSON is unaffected"
+
+        # --retry replays the POST on connection errors and 5xx responses (3 times);
+        # the endpoint keys on pipeline_id + job, which keeps replays idempotent.
+        upload_status=0
+        curl -sS --fail-with-body --retry 3 --retry-connrefused \
+          --retry-delay 5 --connect-timeout 15 --max-time 180 \
+          -X POST "${RISQ_URL}/hooks/p/${RIS_P_ENDPOINT_TOKEN}?pipeline_id=${CI_PIPELINE_ID}&job=${CI_JOB_NAME}&ref=${CI_COMMIT_REF_NAME}&sha=${CI_COMMIT_SHA}&project=${CI_PROJECT_ID}" \
+          -H "Authorization: Token ${RIS_P_SECRET}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@$REPORT_DIR/ris-p-findings.json" || upload_status=$?
+        echo "upload exit code: $upload_status"
+        if [ "$upload_status" != 0 ] && [ "$scan_status" = 0 ]; then scan_status=$upload_status; fi
+      fi
+
+      exit "$scan_status"

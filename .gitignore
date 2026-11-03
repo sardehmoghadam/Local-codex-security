@@ -13,6 +13,7 @@ __pycache__/
 /repositories.csv
 /results/
 /security-scans/
+/security-results/
 /state/
 /codex-security.json
 /findings.json

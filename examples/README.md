@@ -35,6 +35,11 @@ Examples and templates for using Codex Security:
   manual full or committed-diff scans against Azure Repos, with OIDC credentials,
   report artifacts, and optional native SARIF publishing.
 
+- [GitLab CI](gitlab-ci/README.md): four copyable pipelines that build the CLI
+  from a pinned ref or use a prebuilt image, scan the full repository or the merge
+  request diff, publish report artifacts, and POST the findings JSON to a remote
+  endpoint.
+
 ## npm package
 
 This top-level `examples/` directory is available in the repository only; it is

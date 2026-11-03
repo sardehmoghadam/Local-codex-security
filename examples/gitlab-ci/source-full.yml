@@ -1,0 +1,133 @@
+# Codex Security in GitLab CI - variant 1 of 4.
+# Delivery: build the CLI from this fork at a pinned ref. Scope: full repository.
+#
+# Use this file as a pipeline (.gitlab-ci.yml) or include it from one. It works
+# from any repository: the scanner source is cloned next to the checkout, never
+# inside it, so build output stays out of the scan target.
+#
+# CI/CD variables (Settings > CI/CD > Variables):
+#   LOCAL_API_BASE_URL    required, e.g. http://host.docker.internal:1234/v1
+#   RISQ_URL              required, no trailing slash
+#   RIS_P_ENDPOINT_TOKEN  required, masked - it travels in the request URL
+#   RIS_P_SECRET          required, masked
+#   LOCAL_API_KEY         optional, masked; omit for an anonymous local gateway
+#   SCANNER_REPO_URL, SCANNER_REF, SCANNER_SRC, SCAN_TARGET, SCAN_MODEL,
+#   SCAN_MODE, SCAN_EFFORT, FAIL_ON_SEVERITY   optional overrides
+#
+# Runner: Docker executor with
+#   security_opt = ["seccomp=/path/to/docker/codex-security-seccomp.json"]
+# and, on hosts that restrict unprivileged user namespaces,
+#   security_opt = ["apparmor=codex-security-container"]
+# after loading docker/codex-security.apparmor on the host. Codex needs Bubblewrap
+# for filesystem-restricted source inspection; do not disable sandboxing.
+# When the inference gateway runs on the runner host, register
+#   extra_hosts = ["host.docker.internal:host-gateway"]
+
+stages: [security]
+
+variables:
+  SCANNER_REPO_URL: "https://gitlab.example.com/security/codex-security.git"
+  SCANNER_REF: "update/upstream-0.8.2"
+  SCAN_TARGET: "$CI_PROJECT_DIR"
+  SCAN_PROVIDER: local
+  SCAN_MODEL: qwen3.5-35b-a3b
+  SCAN_MODE: standard # standard | deep
+  SCAN_EFFORT: high # passed through to Codex unchanged
+  FAIL_ON_SEVERITY: none # none | critical | high | medium | low
+  REPORT_DIR: "$CI_PROJECT_DIR/security-results"
+  CODEX_SECURITY_STATE_DIR: "/tmp/codex-security-state"
+  PYTHON: /usr/bin/python3
+
+codex-security:
+  stage: security
+  image: node:24-bookworm-slim
+  timeout: 2 hours
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+  allow_failure:
+    exit_codes: [1] # 1 = findings at or above FAIL_ON_SEVERITY
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - security-results/
+    # Code scanning ingestion is GitLab Ultimate only (18.11 behind the
+    # sarif_ingestion flag, GA in 19.2) and only ingests jobs that succeed:
+    # reports:
+    #   sarif: security-results/results.sarif
+  script:
+    - |
+      set -eu
+      apt-get update
+      apt-get install -y --no-install-recommends git python3 ca-certificates curl
+      rm -rf /var/lib/apt/lists/*
+
+      # Build the scanner deliberately outside the scan target and without a cache:
+      # build output cannot live under $CI_PROJECT_DIR without polluting the scan.
+      SCANNER_SRC="${SCANNER_SRC:-$(mktemp -d)/codex-security}"
+      if [ ! -f "$SCANNER_SRC/sdk/typescript/package.json" ]; then
+        git clone --depth 1 --branch "$SCANNER_REF" "$SCANNER_REPO_URL" "$SCANNER_SRC"
+      fi
+
+      command -v corepack >/dev/null 2>&1 || npm install --global --no-audit --no-fund corepack@0.36.0
+      corepack enable
+      corepack prepare "$(node --print "require('$SCANNER_SRC/package.json').packageManager")" --activate
+      pnpm --dir "$SCANNER_SRC/sdk/typescript" install --frozen-lockfile
+      pnpm --dir "$SCANNER_SRC/plugins/codex-security/mcp-app" install --frozen-lockfile
+      pnpm --dir "$SCANNER_SRC/sdk/typescript" run build
+      pnpm --dir "$SCANNER_SRC/sdk/typescript" run build:plugin
+
+      CLI="node $SCANNER_SRC/sdk/typescript/bin/codex-security.mjs"
+      $CLI --version
+
+      # The output directory must be empty and outside the scanned repository.
+      SCAN_DIR="$(mktemp -d)"
+      RESULT_JSON="$(mktemp)"
+      SEVERITY_ARG=""
+      if [ "$FAIL_ON_SEVERITY" != "none" ]; then SEVERITY_ARG="--fail-on-severity $FAIL_ON_SEVERITY"; fi
+
+      scan_status=0
+      $CLI scan "$SCAN_TARGET" \
+        --provider "$SCAN_PROVIDER" \
+        --model "$SCAN_MODEL" \
+        --mode "$SCAN_MODE" \
+        --effort "$SCAN_EFFORT" \
+        --auth auto \
+        --headless \
+        --format json \
+        --output-dir "$SCAN_DIR" \
+        $SEVERITY_ARG > "$RESULT_JSON" || scan_status=$?
+      echo "scan exit code: $scan_status"
+
+      mkdir -p "$REPORT_DIR"
+      mv "$RESULT_JSON" "$REPORT_DIR/result.json"
+      for artifact in report.md findings.json scan-manifest.json coverage.json; do
+        if [ -f "$SCAN_DIR/$artifact" ]; then cp "$SCAN_DIR/$artifact" "$REPORT_DIR/$artifact"; fi
+      done
+
+      # 0 = complete, 1 = severity policy hit. 2, 130, and 143 mean the scan did
+      # not produce findings, so nothing is exported or uploaded.
+      if [ "$scan_status" = 0 ] || [ "$scan_status" = 1 ]; then
+        $CLI export "$SCAN_DIR" --export-format json --output "$REPORT_DIR/ris-p-findings.json"
+        $CLI export "$SCAN_DIR" --export-format sarif \
+          --source-root "$SCAN_TARGET" --output "$REPORT_DIR/results.sarif" \
+          || echo "SARIF export failed; the findings JSON is unaffected"
+
+        # --retry replays the POST on connection errors and 5xx responses (3 times);
+        # the endpoint keys on pipeline_id + job, which keeps replays idempotent.
+        upload_status=0
+        curl -sS --fail-with-body --retry 3 --retry-connrefused \
+          --retry-delay 5 --connect-timeout 15 --max-time 180 \
+          -X POST "${RISQ_URL}/hooks/p/${RIS_P_ENDPOINT_TOKEN}?pipeline_id=${CI_PIPELINE_ID}&job=${CI_JOB_NAME}&ref=${CI_COMMIT_REF_NAME}&sha=${CI_COMMIT_SHA}&project=${CI_PROJECT_ID}" \
+          -H "Authorization: Token ${RIS_P_SECRET}" \
+          -H "Content-Type: application/json" \
+          --data-binary "@$REPORT_DIR/ris-p-findings.json" || upload_status=$?
+        echo "upload exit code: $upload_status"
+        if [ "$upload_status" != 0 ] && [ "$scan_status" = 0 ]; then scan_status=$upload_status; fi
+      fi
+
+      exit "$scan_status"
