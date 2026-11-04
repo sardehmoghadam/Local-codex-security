@@ -11,6 +11,11 @@
 #   RIS_P_ENDPOINT_TOKEN  required, masked - it travels in the request URL
 #   RIS_P_SECRET          required, masked
 #   LOCAL_API_KEY         optional, masked; omit for an anonymous local gateway
+#   SCANNER_GIT_TOKEN     optional, masked; read-only access or deploy token for
+#                         a scanner project that cannot allow this project's job
+#                         token
+#   SCANNER_GIT_USER      optional; defaults to oauth2, e.g.
+#                         gitlab+deploy-token-42 for a deploy token
 #   SCANNER_REPO_URL, SCANNER_REF, SCANNER_SRC, SCAN_TARGET, SCAN_MODEL,
 #   SCAN_MODE, SCAN_EFFORT, FAIL_ON_SEVERITY   optional overrides
 #
@@ -70,7 +75,22 @@ codex-security:
       # build output cannot live under $CI_PROJECT_DIR without polluting the scan.
       SCANNER_SRC="${SCANNER_SRC:-$(mktemp -d)/codex-security}"
       if [ ! -f "$SCANNER_SRC/sdk/typescript/package.json" ]; then
-        git clone --depth 1 --branch "$SCANNER_REF" "$SCANNER_REPO_URL" "$SCANNER_SRC"
+        # The runner injects credentials only for the project the pipeline runs
+        # in. A second, private project needs its own: CI_JOB_TOKEN works once
+        # the scanner project allows this one (Settings > CI/CD > Job token
+        # permissions). Set SCANNER_GIT_TOKEN to use an access or deploy token
+        # instead, and SCANNER_GIT_USER when that token has its own user name.
+        CLONE_AUTH="gitlab-ci-token:${CI_JOB_TOKEN}"
+        if [ -n "${SCANNER_GIT_TOKEN:-}" ]; then
+          CLONE_AUTH="${SCANNER_GIT_USER:-oauth2}:${SCANNER_GIT_TOKEN}"
+        fi
+        case "$SCANNER_REPO_URL" in
+          http://* | https://*)
+            CLONE_URL="${SCANNER_REPO_URL%%://*}://${CLONE_AUTH}@${SCANNER_REPO_URL#*://}"
+            ;;
+          *) CLONE_URL="$SCANNER_REPO_URL" ;;
+        esac
+        git clone --depth 1 --branch "$SCANNER_REF" "$CLONE_URL" "$SCANNER_SRC"
       fi
 
       command -v corepack >/dev/null 2>&1 || npm install --global --no-audit --no-fund corepack@0.36.0

@@ -38,12 +38,35 @@ scans.
 | `SCAN_MODE`            | no         | `standard` or `deep`                                                                                                     |
 | `FAIL_ON_SEVERITY`     | no         | `none`, `critical`, `high`, `medium`, or `low`                                                                           |
 | `SCAN_TARGET`          | no         | Default `$CI_PROJECT_DIR`                                                                                                |
-| `SCANNER_REPO_URL`     | `source-*` | This repository's Git URL                                                                                                |
-| `SCANNER_REF`          | `source-*` | Branch, tag, or commit to build                                                                                          |
+| `SCANNER_REPO_URL`     | `source-*` | This repository's Git URL, without embedded credentials                                                                  |
+| `SCANNER_REF`          | `source-*` | Branch or tag to build; `git clone --branch` does not accept a commit SHA                                                |
+| `SCANNER_GIT_TOKEN`    | no         | Masked. Read-only access or deploy token for a private scanner project; omit to clone with `CI_JOB_TOKEN`                |
+| `SCANNER_GIT_USER`     | no         | User name for `SCANNER_GIT_TOKEN`, e.g. `gitlab+deploy-token-42`. Default `oauth2`                                       |
 | `SCANNER_IMAGE`        | `image-*`  | Scanner image reference                                                                                                  |
 
 Do not export `OPENAI_API_KEY` or `CODEX_API_KEY` to these jobs. A `local` scan
 uses only the local provider's credential.
+
+## Private scanner repository
+
+The runner injects credentials only for the project the pipeline runs in, so a
+`source-*` job that clones a second, private project fails with
+`fatal: could not read Username for '...': No such device or address`. Those files
+authenticate the clone with `CI_JOB_TOKEN`. On the scanner project, open
+**Settings > CI/CD > Job token permissions**, add the project that runs the
+pipeline (or its group), and save. GitLab denies job-token access to other
+projects until that entry exists.
+
+If the instance restricts job-token permissions, create a project or group
+**access token** (or a **deploy token**) with the `read_repository` scope only,
+store it as the masked variable `SCANNER_GIT_TOKEN`, and set `SCANNER_GIT_USER`
+when the token has its own user name (`gitlab+deploy-token-42` for a deploy
+token; `oauth2` is the default).
+
+Credentials are added only to `http://` and `https://` URLs; `git@host:...` and
+`file://` URLs reach `git clone` unchanged. Prefer `https://`: a token in an
+`http://` URL crosses the network in clear text, and a redirect from `http` to
+`https` can drop it. Set `SCANNER_REPO_URL` to the URL the server finally serves.
 
 ## Runner requirements
 
@@ -97,6 +120,12 @@ RUN apt-get update \
 A job that keeps `USER 10001` must point `SCAN_TARGET`, `REPORT_DIR`, and
 `CODEX_SECURITY_STATE_DIR` at writable paths.
 
+A GitLab-hosted copy of this repository builds the same image from its own
+`.gitlab-ci.yml`. The `publish-image` job runs the `scanner` target, adds `curl`
+in a derived image, and pushes `<registry>/risp:<commit sha>` and `:latest` using
+the masked `REGISTRY_USER` and `REGISTRY_PASSWORD` variables. It runs on the
+default branch, on tags, and on manual runs.
+
 ## Results and failures
 
 Each job writes to `security-results/` and uploads it as an artifact:
@@ -132,6 +161,8 @@ Ultimate-only and only ingests jobs that succeed, so it stays commented out.
   model output as untrusted input.
 - Never enable `set -x` in the job script: `RIS_P_ENDPOINT_TOKEN` is part of the
   request URL and `RIS_P_SECRET` is part of a header.
+- The `source-*` clone URL carries `CI_JOB_TOKEN` or `SCANNER_GIT_TOKEN` for the
+  duration of the job. Keep that token read-only and scoped to `read_repository`.
 - Scan reports can contain source excerpts and vulnerability details. Restrict
   artifact access and set a retention policy that matches your data handling.
 - The `source-*` files install dependencies with `--frozen-lockfile` from the

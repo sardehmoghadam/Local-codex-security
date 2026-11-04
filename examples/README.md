@@ -38,7 +38,8 @@ Examples and templates for using Codex Security:
 - [GitLab CI](gitlab-ci/README.md): four copyable pipelines that build the CLI
   from a pinned ref or use a prebuilt image, scan the full repository or the merge
   request diff, publish report artifacts, and POST the findings JSON to a remote
-  endpoint.
+  endpoint. The source variants authenticate a private scanner project with the
+  job token or a read-only token.
 
 ## npm package
 
