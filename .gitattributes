@@ -11,6 +11,11 @@
 *.yaml text eol=lf
 *.yml text eol=lf
 
+# The MCP launcher has no extension, so the extension rules above miss it. A
+# CRLF shebang makes exec fail with ENOENT when the bundled plugin runs inside
+# the Linux image build.
+plugins/codex-security/scripts/launch_codex_security_mcp text eol=lf
+
 # Bundled dependencies contain intentional whitespace in strings and comments.
 github-action/dist/*.cjs linguist-generated=true -whitespace
 
