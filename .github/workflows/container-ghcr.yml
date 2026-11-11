@@ -10,21 +10,15 @@ name: container-ghcr
 #
 # The build needs plugins/codex-security/native/prebuilt. That tree is ignored
 # upstream and normally arrives from the native-artifacts workflow; this
-# workflow instead ships the committed snapshot, because the fork builds on the
-# free plan without arm64 native runners.
+# workflow instead ships the committed snapshot, because the fork builds
+# without arm64 native runners.
+#
+# Manual dispatch only: the fork's default branch does not carry that snapshot,
+# so a push build there could never pass. Each dispatch retags the version,
+# sha-<commit>, and latest.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - docker/**
-      - package.json
-      - sdk/typescript/**
-      - plugins/codex-security/**
-      - .github/workflows/container-ghcr.yml
 
 permissions:
   contents: read
@@ -71,10 +65,8 @@ jobs:
           {
             printf 'image=%s\n' "$image"
             printf 'version=%s\n' "$version"
-            printf 'tags<<EOF\n%s:sha-%s\n%s:%s\n' "$image" "$GITHUB_SHA" "$image" "$version"
-            if [[ $GITHUB_REF == "refs/heads/$GITHUB_DEFAULT_BRANCH" ]]; then
-              printf '%s:latest\n' "$image"
-            fi
+            printf 'tags<<EOF\n%s:sha-%s\n%s:%s\n%s:latest\n' \
+              "$image" "$GITHUB_SHA" "$image" "$version" "$image"
             printf 'EOF\n'
           } >> "$GITHUB_OUTPUT"
 
@@ -126,6 +118,6 @@ jobs:
           test "$(docker run --rm --entrypoint id "$reference" -u)" = 10001
           docker logout ghcr.io
           {
-            printf '### Published `%s`\n\n```\ndocker pull %s:%s\n```\n' \
+            printf '### Published `%s`\n\n```\ndocker pull %s:latest\ndocker pull %s:%s\n```\n' \
               "$reference" "$IMAGE" "$VERSION"
           } >> "$GITHUB_STEP_SUMMARY"
