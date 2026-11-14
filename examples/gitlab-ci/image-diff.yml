@@ -30,11 +30,17 @@
 #   FAIL_ON_SEVERITY   optional overrides
 #
 # Runner: Docker executor with
-#   security_opt = ["seccomp=/path/to/docker/codex-security-seccomp.json"]
-# and, on hosts that restrict unprivileged user namespaces,
-#   security_opt = ["apparmor=codex-security-container"]
-# after loading docker/codex-security.apparmor on the host. Codex needs Bubblewrap
-# for filesystem-restricted source inspection; do not disable sandboxing.
+#   security_opt = ["seccomp=/etc/codex-security/codex-security-seccomp.json",
+#                   "no-new-privileges:true"]
+#   cap_drop = ["ALL"]
+# The daemon resolves that path, so install the profile on the host that runs the
+# daemon; without it this job exits 2 with "bwrap: No permissions to create a new
+# namespace". These settings apply to every job on the runner, so use a dedicated
+# one. See README.md for the full snippet and an `unshare -Ur true` preflight. On
+# hosts that restrict unprivileged user namespaces, also load
+# docker/codex-security.apparmor and add apparmor=codex-security-container. Codex
+# needs Bubblewrap for filesystem-restricted source inspection; do not disable
+# sandboxing.
 # When the inference gateway runs on the runner host, register
 #   extra_hosts = ["host.docker.internal:host-gateway"]
 
@@ -49,7 +55,6 @@ variables:
   SCAN_EFFORT: high # passed through to Codex unchanged
   FAIL_ON_SEVERITY: none # none | critical | high | medium | low
   REPORT_DIR: "$CI_PROJECT_DIR/security-results"
-  CODEX_SECURITY_STATE_DIR: "/tmp/codex-security-state"
   PYTHON: /usr/bin/python3
   GIT_DEPTH: "0" # --diff needs a full, clean checkout at the head revision
 

@@ -228,3 +228,30 @@ for later stages and retries; use the same image version and source paths.
 Stop active runners before backing up the entire results and state directories,
 and keep backups separately. No service ports or Docker socket are exposed by
 the runner example.
+
+### Running outside Compose
+
+A hand-written `docker run` must supply the flags the Compose examples already
+carry:
+
+```bash
+docker run --rm \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --security-opt "seccomp=$PWD/docker/codex-security-seccomp.json" \
+  --volume "$PWD/results:/output" \
+  "ghcr.io/openai/codex-security:$VERSION" \
+  scan /output/repository --output-dir /output/scans/run-001 --headless
+```
+
+Docker's built-in seccomp profile blocks the namespace syscalls Bubblewrap needs,
+so a run without the `seccomp` option exits 2 with
+`bwrap: No permissions to create a new namespace`. The `docker` CLI reads the
+profile on the host that runs the CLI; the daemon resolves the path only when
+another client, such as a CI runner, passes the option.
+
+A bind-mounted results directory must not be group- or world-writable unless its
+sticky bit is set. Windows and Docker Desktop bind mounts arrive as mode 777 and
+fail with `Scan output parent must not be group- or world-writable without the
+sticky bit`. Use a Docker volume, `chmod 1777` on the host directory, or
+`--user "$(id -u):$(id -g)"` against a directory the caller owns.

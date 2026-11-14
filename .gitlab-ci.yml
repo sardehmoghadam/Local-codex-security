@@ -4,19 +4,20 @@
 # a derived image, and pushes two tags: the commit SHA and latest. It runs on the
 # default branch, on tags, and on manual (web) runs from any branch.
 #
-# CI/CD variables (Settings > CI/CD > Variables):
-#   REGISTRY_USER      required, masked - user name or deploy token name
-#   REGISTRY_PASSWORD  required, masked - its password or deploy token value
+# Registry: the pushes use no credentials. The daemon that pushes must trust the
+# registry, so a plain-HTTP or self-signed registry has to be listed in that
+# daemon's insecure-registries first (Docker Desktop: Settings, Docker Engine):
+#   { "insecure-registries": ["registry.local.com"] }
 #
-# Runner: Docker executor with
-#   privileged = true
-# for the docker:dind service. A runner that binds the host's
-# /var/run/docker.sock into the job instead keeps privileged = false.
+# Runner: the Docker executor binds the host's Docker socket into the job, so the
+# job runs docker against the host daemon. No docker:dind service, no
+# DOCKER_HOST/TLS variables and no privileged mode:
+#   [runners.docker]
+#     volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
+# The runner container itself must mount that socket as well.
 #
 # The build pulls node:26.12.1-bookworm-slim and the dockerfile frontend from
-# Docker Hub, and packages need the npm registry. On a runner without direct
-# access, start dind with a mirror, e.g.
-#   command = ["--registry-mirror=https://mirror.local.com"]
+# Docker Hub, and packages need the npm registry.
 #
 # The scanner target intentionally has no curl; the upload step in
 # examples/gitlab-ci does. The derived image keeps that step working, so
@@ -26,17 +27,10 @@ stages: [publish]
 
 variables:
   IMAGE: registry.local.com/risp
-  DOCKER_TLS_CERTDIR: "/certs"
-  DOCKER_HOST: "tcp://docker:2376"
-  DOCKER_TLS_VERIFY: "1"
-  DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
 
 publish-image:
   stage: publish
   image: docker:27-cli
-  services:
-    - name: docker:27-dind
-      alias: docker
   timeout: 1 hour
   interruptible: true
   rules:
@@ -46,7 +40,10 @@ publish-image:
   script:
     - |
       set -eu
-      echo "$REGISTRY_PASSWORD" | docker login --username "$REGISTRY_USER" --password-stdin "${IMAGE%%/*}"
+      # Show the daemon this job talks to. A DOCKER_HOST left over from the
+      # docker:dind setup points at a service host that does not exist.
+      env | grep -i '^DOCKER_' || true
+      docker version
 
       # Package this checkout and install it into the scanner image.
       docker build --target scanner --tag "$IMAGE:scanner-$CI_COMMIT_SHORT_SHA" .

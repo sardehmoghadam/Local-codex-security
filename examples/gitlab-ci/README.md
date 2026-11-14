@@ -71,14 +71,49 @@ Credentials are added only to `http://` and `https://` URLs; `git@host:...` and
 ## Runner requirements
 
 Codex confines source inspection with Bubblewrap, so the scan needs a runner that
-supports unprivileged user namespaces. Register the runner with the repository's
-seccomp profile:
+supports unprivileged user namespaces. Docker's built-in seccomp profile blocks the
+namespace syscalls Bubblewrap needs, so register the runner with this repository's
+profile:
+
+```bash
+# on the host that runs the Docker daemon
+sudo install -D -m 0644 docker/codex-security-seccomp.json \
+  /etc/codex-security/codex-security-seccomp.json
+```
 
 ```toml
 [[runners]]
   [runners.docker]
-    security_opt = ["seccomp=/path/to/codex-security/docker/codex-security-seccomp.json"]
+    security_opt = [
+      "seccomp=/etc/codex-security/codex-security-seccomp.json",
+      "no-new-privileges:true",
+    ]
+    cap_drop = ["ALL"]
 ```
+
+These settings apply to every job the runner executes, so register the runner for
+these jobs alone and select it with `tags: [codex-security]`. The Docker daemon
+resolves that path, not the job container: install the profile on the host that runs
+the daemon, and bind-mount it at the same path into the runner container when the
+runner itself runs in one. When the daemon cannot read that host path, as with
+Docker Desktop's Linux VM, no `security_opt` path works; run the scan through the
+CLI's own `docker run --security-opt seccomp=<path>`, which reads the file locally,
+or run these jobs on a Linux runner.
+
+Check a runner before spending a scan on it:
+
+```yaml
+runner-preflight:
+  stage: security
+  image:
+    name: "$SCANNER_IMAGE" # node:24-bookworm-slim for the source-* files
+    entrypoint: [""]
+  script:
+    - unshare -Ur true && echo "userns available"
+```
+
+Without the profile the check and every scan fail with
+`bwrap: No permissions to create a new namespace`, and the scan exits 2.
 
 On hosts that restrict unprivileged namespaces, also load
 `docker/codex-security.apparmor` and add
@@ -117,14 +152,19 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 ```
 
-A job that keeps `USER 10001` must point `SCAN_TARGET`, `REPORT_DIR`, and
-`CODEX_SECURITY_STATE_DIR` at writable paths.
+A job that keeps `USER 10001` must point `SCAN_TARGET` and `REPORT_DIR` at writable
+paths. The state directory stays outside the checkout by default
+(`/output/.codex-security-state` in the scan images,
+`$HOME/.codex/state/plugins/codex-security` under `node:24-bookworm-slim`), and the
+CLI rejects one that resolves inside the scanned repository.
 
 A GitLab-hosted copy of this repository builds the same image from its own
 `.gitlab-ci.yml`. The `publish-image` job runs the `scanner` target, adds `curl`
-in a derived image, and pushes `<registry>/risp:<commit sha>` and `:latest` using
-the masked `REGISTRY_USER` and `REGISTRY_PASSWORD` variables. It runs on the
-default branch, on tags, and on manual runs.
+in a derived image, and pushes `<registry>/risp:<commit sha>` and `:latest`
+without credentials. It runs `docker` against the socket the runner binds in from
+the host, so it needs neither a `docker:dind` service nor a privileged runner,
+and a registry that serves plain HTTP must be trusted by that daemon. It runs on
+the default branch, on tags, and on manual runs.
 
 ## Results and failures
 
@@ -149,6 +189,9 @@ prints the server's response body. `--retry` replays the POST on connection erro
 and 5xx responses, and the endpoint's `pipeline_id` and `job` parameters make those
 replays idempotent. An upload failure fails the job only when the scan itself
 succeeded.
+
+An exit 2 with `bwrap: No permissions to create a new namespace` means the runner
+lacks the seccomp profile; see [Runner requirements](#runner-requirements).
 
 `--diff` requires a clean checkout without untracked files, which is why the
 `*-diff` files write nothing into `$CI_PROJECT_DIR` before the scan and set
