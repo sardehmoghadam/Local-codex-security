@@ -176,6 +176,14 @@ Each job writes to `security-results/` and uploads it as an artifact:
   sealed `findings.json` and the body of the upload
 - `results.sarif` - `export --export-format sarif` with source-line fingerprints
 
+The GitLab Runner archives that directory itself, running as its own host user
+rather than as the job container's user, and the scan writes reports `0600`. Each
+job therefore widens read access with an `EXIT` trap in its script, which runs on
+every exit path including the non-zero statuses below; an `after_script` repeats
+the `chmod` for a shell that is killed before the trap is installed. Without that,
+the upload fails with `open security-results/result.json: permission denied` even
+though the scan succeeded.
+
 Add `security-results/` to the target repository's `.gitignore`.
 
 | Scan exit         | Job behavior                                                                                              |
@@ -208,6 +216,8 @@ Ultimate-only and only ingests jobs that succeed, so it stays commented out.
   duration of the job. Keep that token read-only and scoped to `read_repository`.
 - Scan reports can contain source excerpts and vulnerability details. Restrict
   artifact access and set a retention policy that matches your data handling.
+- The trap and the `after_script` make `security-results/` readable by other local
+  users on the runner host. Restrict interactive access to that host.
 - The `source-*` files install dependencies with `--frozen-lockfile` from the
   pinned ref; pin `SCANNER_REF` to a reviewed commit or tag rather than a moving
   branch.

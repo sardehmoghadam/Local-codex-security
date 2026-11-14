@@ -145,6 +145,12 @@ codex-security:
       echo "scan exit code: $scan_status"
 
       mkdir -p "$REPORT_DIR"
+      # The runner archives from the host as its own user, mktemp creates the
+      # result capture 0600, and the CLI writes findings 0600, so widen read access
+      # on every exit path, including the non-zero statuses below. Without this the
+      # upload fails with "open security-results/result.json: permission denied".
+      # The || true keeps chmod from replacing the scan exit status.
+      trap 'chmod -R a+rX "$REPORT_DIR" || true' EXIT
       mv "$RESULT_JSON" "$REPORT_DIR/result.json"
       for artifact in report.md findings.json scan-manifest.json coverage.json; do
         if [ -f "$SCAN_DIR/$artifact" ]; then cp "$SCAN_DIR/$artifact" "$REPORT_DIR/$artifact"; fi
@@ -172,3 +178,9 @@ codex-security:
       fi
 
       exit "$scan_status"
+
+  # The trap in the script runs on every exit path, but a shell killed before it
+  # is installed (timeout, cancel) never gets there. Repeat the widening so the
+  # directory is readable before GitLab collects it.
+  after_script:
+    - chmod -R a+rX "$REPORT_DIR"
